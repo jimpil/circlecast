@@ -1,6 +1,7 @@
 # circlecast
 
-![cc-avatar](cc.png){: .center-image}
+![cc-avatar](cc.png)
+
 
 ## What 
 
