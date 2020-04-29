@@ -1,14 +1,13 @@
 # circlecast
 
-
-
+![cc-avatar](cc.png)
 
 ## What 
 
 [CircleDB](https://www.aosabook.org/en/500L/an-archaeology-inspired-database.html) 
 on top of [Hazelcast](https://hazelcast.com/) (see `com.hazelcast.cp.IAtomicReference` for the exact construct utilised).
 
-####TL;DR
+#### tl;dr
 An _in-memory, index-optimized, query-supporting, library developer-friendly, time-aware, functional (immutable) 
 database_, now distributed via Hazelcast (for persistence keep reading).
 
@@ -16,7 +15,7 @@ database_, now distributed via Hazelcast (for persistence keep reading).
 ## DB structure
 One has to really read the article linked in the first sentence of this README, in order to fully understand/appreciate
 the design around this. In short, a database is essentially a collection of layers. Each layer represents a point in time
-where a new piece of information was found. That includes insertions, updates and deletions (i.e. always growing by adding layers).
+when a new fact was discovered. That includes insertions, updates and deletions (i.e. always growing by adding layers).
 The last layer represents the latest information (for all the entities). An entity is something uniquely named with a set of attributes, 
 each having a value (at a particular point in time). Rather datomic-like actually...
 
@@ -53,28 +52,8 @@ Assuming a Hazelcast instance `hz-instance` (e.g. the result of `(Hazelcast/newH
   :curr-time 0}
 
 ```
-See `circlecast.fdb.hospital.clj` for a more involved example.
+See test namespace `circlecast.fdb.hospital.clj` for a more involved example.
 
-## `duratom` integration
-Here is how to create an atom distributed via Hazelcast, and persisted on PostgresDB via [duratom](https://github.com/jimpil/duratom):
-
-```clj
-(require '[circlecast.hzatom :refer [hz-atom]]
-         '[circlecast.fdb.constructs :refer [make-db]
-         '[duratom.core :refer [with-atom-ctor duratom]]])
-
-(def db-name "myPersistedDB")
-(def DB 
-  (with-atom-ctor (partial hz-atom (-> hz-instance .getCPSubsystem (.getAtomicReference db-name)))
-    (duratom :postgres-db
-             :db-config "any db-spec as understood by clojure.java.jdbc"
-             :table-name "my_table"
-             :row-id 0
-             :init (make-db identity)))) ;; init-value is only relevant when nothing is found in storage 
-
-@DB 
-;; => an empty DB (same as before)
-```
 
 
 ## Persistence
@@ -91,9 +70,36 @@ Well, this entire library is based around the `circlecast.hzatom.HazelcastAtom` 
 which a `duratom` will happily wrap. This is a win-win situation! Not only one can add persistence to a hazelcast atom 
 (by wrapping it with a `duratom`), but existing `duratom` users can also add distribution to their atoms (by replacing them with hazelcast atoms).
 Frankly, I never intended for `duratom` to be something distributable, but in this context (where atomicity **and** distribution are provided by the underlying atom) 
-everything falls into place quite beautifully.  
- 
+everything falls into place quite beautifully. Here is how to create an atom distributed via Hazelcast, and persisted on PostgresDB via `duratom`:
+                                               
+```clj
+(require '[circlecast.hzatom :refer [hz-atom]]
+         '[circlecast.fdb.constructs :refer [make-db]
+         '[duratom.core :refer [with-atom-ctor duratom]]])
+                                               
+(def db-name "myPersistedDB")
+(def DB 
+  (with-atom-ctor (partial hz-atom (-> hz-instance .getCPSubsystem (.getAtomicReference db-name)))
+    (duratom :postgres-db
+             :db-config "any db-spec as understood by clojure.java.jdbc"
+             :table-name "my_table"
+             :row-id 0                   ;; different nodes in the cluster could write to different rows
+             :init (make-db identity)))) ;; init-value is only relevant when nothing is found in storage 
+                                               
+@DB 
+;; => an empty DB (same as before)
+```                                               
 
+## Hazelcast controversy
+Back in 2017, `jepsen.io` produced an [analysis](https://jepsen.io/analyses/hazelcast-3-8-3) of version 3.8.3, 
+exposing certain holes/bugs, and the project received a fair bit of criticism, 
+for example [here](https://news.ycombinator.com/item?id=15416848). Since then, version 4 has been released 
+and the devs seem confident about it, while still using `jepsen` as a testing tool. 
+Read more [here](https://hazelcast.com/blog/testing-the-cp-subsystem-with-jepsen/).   
+ 
+## Requirements
+
+- Hazelcast 4 
 
 ## License
 
