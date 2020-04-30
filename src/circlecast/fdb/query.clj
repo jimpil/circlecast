@@ -121,7 +121,7 @@
   a query plan, which is a function that accepts a database and executes the plan on it."
   [query]
   (let [term-ind (index-of-joining-variable query)
-        ind-to-use (case term-ind 0 :AVET 1 :VEAT 2 :EAVT)]
+        ind-to-use (case (int term-ind) 0 :AVET 1 :VEAT 2 :EAVT)]
     (partial single-index-query-plan query ind-to-use)))
 
 (defn resultify-bind-pair
