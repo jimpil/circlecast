@@ -4,7 +4,7 @@
             [circlecast.fdb.graph :as G]
             [circlecast.fdb.query :as Q]
             [circlecast.fdb.manage :as M]
-            [circlecast.hzatom :as hza]
+            [circlecast.atoms.hazelcast :as hza]
             [clojure.set :refer (union difference)])
   (:import (com.hazelcast.core Hazelcast)))
 

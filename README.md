@@ -23,7 +23,7 @@ each having a value (at a particular point in time). Rather datomic-like actuall
 
 ## DB connection
 Immutable databases need a way of transitioning from one state to another. For dev/test work, a regular Clojure atom will suffice.
-For a distributed atom, refer to `circlecast.hzatom.HazelcastAtom` and its constructor-fn `circlecast.hzatom.hz-atom.`
+For a distributed atom, refer to `circlecast.atoms.hazelcast.HazelcastAtom` and its constructor-fn `circlecast.atoms.hazelcast.hz-atom.`
 
 
 ## Usage 
@@ -31,8 +31,8 @@ For a distributed atom, refer to `circlecast.hzatom.HazelcastAtom` and its const
 Assuming a Hazelcast instance `hz-instance` (e.g. the result of `(Hazelcast/newHazelcastInstance)`), the following returns an empty DB.
 
 ```clj
-(require '[circlecast.hzatom :refer [hz-atom]]
-         '[circlecast.fdb.constructs :refer [make-db]])
+(require '[circlecast.atoms.hazelcast :refer [hz-atom]]
+         '[circlecast.fdb.constructs  :refer [make-db]])
 
 (def db-name "myDB")
 ;; make-db can be called w/o args but returns  regular atom
@@ -67,15 +67,15 @@ If a more formal/consistent approach is required, Hazelcast itself provides ente
 
 Putting that stuff aside for a moment, I am more interested/excited about how nicely this plays with [duratom](https://github.com/jimpil/duratom),
 which is wrapper-type for atoms whose whole purpose is to add durability (on every state change). Why is that relevant, I hear you ask...
-Well, this entire library is based around the `circlecast.hzatom.HazelcastAtom` type (implementing `IAtom`, `IAtom2` \& `IDeref`), 
+Well, this entire library is based around the `circlecast.atoms.hazelcast.HazelcastAtom` type (implementing `IAtom`, `IAtom2` \& `IDeref`), 
 which a `duratom` will happily wrap. This is a win-win situation! Not only one can add persistence to a hazelcast atom 
 (by wrapping it with a `duratom`), but existing `duratom` users can also add distribution to their atoms (by replacing them with hazelcast atoms).
 Frankly, I never intended for `duratom` to be something distributable, but in this context (where atomicity **and** distribution are provided by the underlying atom) 
 everything falls into place quite beautifully. Here is how to create an atom distributed via Hazelcast, and persisted on PostgresDB via `duratom`:
                                                
 ```clj
-(require '[circlecast.hzatom :refer [hz-atom]]
-         '[circlecast.fdb.constructs :refer [make-db]
+(require '[circlecast.atoms.hazelcast :refer [hz-atom]]
+         '[circlecast.fdb.constructs  :refer [make-db]
          '[duratom.core :refer [with-atom-ctor duratom]]])
                                                
 (def db-name "myPersistedDB")

@@ -1,7 +1,11 @@
-(ns circlecast.hzatom
+(ns circlecast.atoms.hazelcast
   (:import (clojure.lang IAtom IAtom2 IDeref)
-           (com.hazelcast.cp IAtomicReference)
-           (com.hazelcast.core IFunction)))
+           ;(com.hazelcast.cp IAtomicReference)
+           ;(com.hazelcast.core IFunction)
+           ))
+
+(import '(com.hazelcast.cp IAtomicReference)
+        '(com.hazelcast.core IFunction))
 
 
 (defn- fn->hz-fn

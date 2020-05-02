@@ -77,7 +77,7 @@
   (let [[fixed-ent next-top-id] (fix-new-entity db ent)
         layer-with-updated-storage (-> db :layers peek (update :storage storage/write-entity fixed-ent))
         add-fn (partial add-entity-to-index fixed-ent)
-        new-layer (reduce add-fn layer-with-updated-storage impl/indices)]
+        new-layer (reduce add-fn layer-with-updated-storage (keys impl/indices))]
     (append-layer db new-layer next-top-id)))
 
 (defn add-entities
@@ -139,7 +139,8 @@
   [layer ent-id old-attr updated-attr new-val operation]
   (let [updated-entity (-> layer :storage (put-entity ent-id updated-attr))
         new-layer (reduce (partial update-index ent-id old-attr new-val operation)
-                          layer impl/indices)]
+                          layer
+                          (keys impl/indices))]
     (-> new-layer
         (update :storage storage/write-entity updated-entity)
         (assoc :instant (ut/now-instant!)))))
@@ -183,7 +184,7 @@
         layer (remove-back-refs db ent-id (peek (:layers db)))
         retimed-layer (update-in layer [:VAET] dissoc ent-id)
         no-ent-layer (assoc retimed-layer :storage (storage/drop-entity (:storage retimed-layer) ent))
-        new-layer (reduce (partial remove-entity-from-index ent) no-ent-layer impl/indices)]
+        new-layer (reduce (partial remove-entity-from-index ent) no-ent-layer (keys impl/indices))]
     (append-layer db new-layer)))
 
 (defn transact-on-db

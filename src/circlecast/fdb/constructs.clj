@@ -1,12 +1,44 @@
 (ns circlecast.fdb.constructs
   (:require [circlecast.fdb.storage :as storage]
-            [circlecast.util :as ut])
+            [circlecast.util :as ut]
+            [jedi-time.core :as jdt]
+            [clojure.edn :as edn])
   (:import [circlecast.fdb.storage InMemory]))
 
 (defrecord Database [layers top-id curr-time])
 (defrecord Layer    [storage VAET AVET VEAT EAVT instant])
 (defrecord Entity   [id attrs])
 (defrecord Attr     [name value ts prev-ts])
+
+(declare make-index ref?)
+(defonce always (constantly true))
+
+(defonce indices
+  {:VAET [#(vector %3 %2 %1)
+          #(vector %3 %2 %1)
+          ref?]
+   :AVET [#(vector %2 %3 %1)
+          #(vector %3 %1 %2)
+          always]
+   :VEAT [#(vector %3 %1 %2)
+          #(vector %2 %3 %1)
+          always]
+   :EAVT [#(vector %1 %2 %3)
+          #(vector %1 %2 %3)
+          always]})
+
+(defn- decorate-layer [layer]
+  (reduce-kv
+    #(update %1 %2 make-index %3)
+    (update layer :instant #(cond-> % (map? %) jdt/undatafy))
+    indices))
+
+(def readers
+  "The EDN readers required to fully reconstruct the records from tagged literals."
+  {'circlecast.fdb.constructs.Database map->Database
+   'circlecast.fdb.constructs.Layer    (comp map->Layer decorate-layer)
+   'circlecast.fdb.constructs.Entity   map->Entity
+   'circlecast.fdb.constructs.Attr     map->Attr})
 
 (defn make-index
   "An index is a tree, implemented by nested maps, each level corresponds to either
@@ -16,10 +48,12 @@
    using the to-eav function, or transform an EAV to a specific index path using the from-eav,
    both function reside in the metadata of the index. The usage-pred is a predicate to decide
    whether to index a specific attribute in an entity or not."
-  [from-eav to-eav usage-pred]
-  (with-meta {} {:from-eav from-eav
+  ([from-to-eav]
+   (make-index {} from-to-eav))
+  ([m [from-eav to-eav usage-pred]]
+   (with-meta m {:from-eav from-eav
                  :to-eav   to-eav
-                 :usage-pred usage-pred}))
+                 :usage-pred usage-pred})))
 
 (defn from-eav [index]
   (:from-eav (meta index)))
@@ -36,8 +70,6 @@
 (defn ref? [attr]
   (= :db/ref (:type (meta attr))))
 
-(defonce always (constantly true))
-
 (defn make-db
   "Create an empty database"
   ([]
@@ -47,10 +79,10 @@
      (Database.
        [(Layer.
           (InMemory.) ; storage
-          (make-index #(vector %3 %2 %1) #(vector %3 %2 %1) #(ref? %)) ; VAET - for graph queries and joins
-          (make-index #(vector %2 %3 %1) #(vector %3 %1 %2) always) ; AVET - for filtering
-          (make-index #(vector %3 %1 %2) #(vector %2 %3 %1) always) ; VEAT - for filtering
-          (make-index #(vector %1 %2 %3) #(vector %1 %2 %3) always) ; EAVT - for filtering
+          (make-index ->vaet->) ; VAET - for graph queries and joins
+          (make-index ->avet->) ; AVET - for filtering
+          (make-index ->veat->) ; VEAT - for filtering
+          (make-index ->eavt->) ; EAVT - for filtering
           (ut/now-instant!))]
        "0"
        0))))
@@ -89,7 +121,7 @@
    (kind ((:layers db) ts))))
 
 (defn collify [x] (if (coll? x) x [x]))
-(defonce indices [:VAET :AVET :VEAT :EAVT])
+
 
 (defn make-entity
   "creates an entity, if id is not supplied, a running id is assigned to the entity"
