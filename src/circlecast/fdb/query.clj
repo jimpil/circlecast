@@ -247,7 +247,8 @@
   (vec
     (for [clause joining-clauses]
       `(assoc '~clause :jrs
-         (realise* ~db ~(:from clause)
+         (realise* ~(:db clause db)
+                   ~(:from clause)
                    (map identity)
                    (order-by ~(:order-by clause))
                    (empty ~(:find clause)))))))

@@ -74,6 +74,7 @@
 
                 ]
         :join [{:type :inner
+                ;:db
                 :from {:find  [?currency-id ?minor-units]
                        :where [[?currency-id :currency/a3-code ^:in? #{"EUR" "USD"}]
                                [?currency-id :currency/minor-units ?minor-units]]}
