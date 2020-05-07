@@ -10,35 +10,7 @@
 (defrecord Entity   [id attrs])
 (defrecord Attr     [name value ts prev-ts])
 
-(declare make-index ref?)
 (defonce always (constantly true))
-
-(defonce indices
-  {:VAET [#(vector %3 %2 %1)
-          #(vector %3 %2 %1)
-          ref?]
-   :AVET [#(vector %2 %3 %1)
-          #(vector %3 %1 %2)
-          always]
-   :VEAT [#(vector %3 %1 %2)
-          #(vector %2 %3 %1)
-          always]
-   :EAVT [#(vector %1 %2 %3)
-          #(vector %1 %2 %3)
-          always]})
-
-(defn- decorate-layer [layer]
-  (reduce-kv
-    #(update %1 %2 make-index %3)
-    (update layer :instant #(cond-> % (map? %) jdt/undatafy))
-    indices))
-
-(def readers
-  "The EDN readers required to fully reconstruct the records from tagged literals."
-  {'circlecast.fdb.constructs.Database map->Database
-   'circlecast.fdb.constructs.Layer    (comp map->Layer decorate-layer)
-   'circlecast.fdb.constructs.Entity   map->Entity
-   'circlecast.fdb.constructs.Attr     map->Attr})
 
 (defn make-index
   "An index is a tree, implemented by nested maps, each level corresponds to either
@@ -70,6 +42,33 @@
 (defn ref? [attr]
   (= :db/ref (:type (meta attr))))
 
+(def indices
+  {:VAET [#(vector %3 %2 %1)
+          #(vector %3 %2 %1)
+          ref?]
+   :AVET [#(vector %2 %3 %1)
+          #(vector %3 %1 %2)
+          always]
+   :VEAT [#(vector %3 %1 %2)
+          #(vector %2 %3 %1)
+          always]
+   :EAVT [#(vector %1 %2 %3)
+          #(vector %1 %2 %3)
+          always]})
+
+(defn- decorate-layer [layer]
+  (reduce-kv
+    #(update %1 %2 make-index %3)
+    (update layer :instant #(cond-> % (map? %) jdt/undatafy))
+    indices))
+
+(def readers
+  "The EDN readers required to fully reconstruct the records from tagged literals."
+  {'circlecast.fdb.constructs.Database map->Database
+   'circlecast.fdb.constructs.Layer    (comp map->Layer decorate-layer)
+   'circlecast.fdb.constructs.Entity   map->Entity
+   'circlecast.fdb.constructs.Attr     map->Attr})
+
 (defn make-db
   "Create an empty database"
   ([]
@@ -79,10 +78,10 @@
      (Database.
        [(Layer.
           (InMemory.) ; storage
-          (make-index ->vaet->) ; VAET - for graph queries and joins
-          (make-index ->avet->) ; AVET - for filtering
-          (make-index ->veat->) ; VEAT - for filtering
-          (make-index ->eavt->) ; EAVT - for filtering
+          (make-index (:VAET indices)) ; VAET - for graph queries and joins
+          (make-index (:AVET indices)) ; AVET - for filtering
+          (make-index (:VEAT indices)) ; VEAT - for filtering
+          (make-index (:EAVT indices)) ; EAVT - for filtering
           (ut/now-instant!))]
        "0"
        0))))
@@ -153,4 +152,11 @@
   [ent attr]
   (let [attr-id (keyword (:name attr))]
     (assoc-in ent [:attrs attr-id] attr)))
+
+(defn last-layer
+  [^Database db]
+  (-> db :layers peek))
+
+(def last-layer-storage
+  (comp :storage last-layer))
 

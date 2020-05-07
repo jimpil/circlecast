@@ -38,14 +38,13 @@
           _ (println "Initialising with" (reset! atom1 #{}))
           expected (range 200)
           ranges (partition 50 expected)
-          loops (doall
-                  (map #(future
-                          (doseq [i %2]
-                            (Thread/sleep (rand-int 100))
-                            (swap! %1 conj i))
-                          true)
-                       atoms
-                       ranges))]
+          loops (pmap
+                  #(doseq [i %2]
+                     (Thread/sleep (rand-int 100))
+                     (swap! %1 conj i)
+                     true)
+                  atoms
+                  ranges)]
       (println "Waiting for nodes to complete their work...")
       (is (every? deref loops)) ;; block the thread until all done
       (is (= (set expected) @atom1 @atom2 @atom3 @atom4))

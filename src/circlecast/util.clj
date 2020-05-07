@@ -1,6 +1,6 @@
 (ns circlecast.util
   (:require [clojure.datafy :as d])
-  (:import [java.util UUID]
+  (:import [java.util UUID HashMap]
            [java.time Instant]))
 
 (defn uuid! []
@@ -8,3 +8,9 @@
 
 (defn now-instant! []
   (-> (Instant/now) d/datafy))
+
+(defn find-first
+  [pred coll]
+  (some
+    #(when (pred %) %)
+    coll))

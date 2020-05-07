@@ -75,7 +75,7 @@
 (defn add-entity
   [db ent]
   (let [[fixed-ent next-top-id] (fix-new-entity db ent)
-        layer-with-updated-storage (-> db :layers peek (update :storage storage/write-entity fixed-ent))
+        layer-with-updated-storage (-> db impl/last-layer (update :storage storage/write-entity fixed-ent))
         add-fn (partial add-entity-to-index fixed-ent)
         new-layer (reduce add-fn layer-with-updated-storage (keys impl/indices))]
     (append-layer db new-layer next-top-id)))
@@ -150,7 +150,7 @@
    (update-entity db ent-id attr-name new-val :db/reset-to))
   ([db ent-id attr-name new-val operation]
    (let [update-ts (next-ts db)
-         layer (peek (:layers db))
+         layer (impl/last-layer db)
          attr (impl/attr-at db ent-id attr-name)
          updated-attr (update-attr attr new-val update-ts operation)
          fully-updated-layer (update-layer layer ent-id attr updated-attr new-val operation)]
@@ -174,14 +174,14 @@
 
 (defn- remove-back-refs [db e-id layer]
   (let [reffing-datoms (reffing-to e-id layer)
-        remove-fn (fn[d [e a]] (update-entity db e a e-id :db/remove))
+        remove-fn (fn [d [e a]] (update-entity db e a e-id :db/remove))
         clean-db (reduce remove-fn db reffing-datoms)]
-    (peek (:layers clean-db))))
+    (impl/last-layer clean-db)))
 
 (defn remove-entity
   [db ent-id]
   (let [ent (impl/entity-at db ent-id)
-        layer (remove-back-refs db ent-id (peek (:layers db)))
+        layer (remove-back-refs db ent-id (impl/last-layer db))
         retimed-layer (update-in layer [:VAET] dissoc ent-id)
         no-ent-layer (assoc retimed-layer :storage (storage/drop-entity (:storage retimed-layer) ent))
         new-layer (reduce (partial remove-entity-from-index ent) no-ent-layer (keys impl/indices))]
