@@ -1,8 +1,6 @@
 (ns circlecast.fdb.query
   (:require [clojure.set :as CS]
-            [circlecast.fdb.constructs :as impl]
-            [clojure.set :as set]
-            [circlecast.util :as ut])
+            [circlecast.fdb.constructs :as impl])
   (:import (java.util ArrayList)))
 
 (defn variable?
@@ -31,8 +29,15 @@
     (and (set? clause-term) ;; set of constant values (OR semantics)
          (-> clause-term meta :in?)) `(partial contains? ~clause-term)
 
+    (and (set? clause-term) ;; set of constant values (OR semantics)
+         (-> clause-term meta :not-in?)) `(complement (partial contains? ~clause-term))
+
+
     (and (map? clause-term) ;; nested query returning set (of ids typically)
          (-> clause-term meta :in?)) `#(contains? (q ~db ~clause-term (mapcat vals)) %)
+
+    (and (map? clause-term) ;; nested query returning set (of ids typically)
+         (-> clause-term meta :not-in?)) `#(not (contains? (q ~db ~clause-term (mapcat vals)) %))
 
     (not (list? clause-term))
     `(partial = ~clause-term) ; simple value given, e.g.,  :likes
@@ -235,6 +240,8 @@
                  true (map (comp keyword #(subs % 1) str))
                  true vec)])))
 
+;; public API
+
 (defmacro q
   "querying the database using datalog queries built in a map structure
   ({:find [variables*] :where [ [e a v]* ]}). (after the where there are clauses)
@@ -247,4 +254,11 @@
               (or ~xform (map identity))
               ~(order-by (:order-by query))
               ~(empty (:find query)))))
+
+(defmacro q-all
+  "Executes the same query on multiple <dbs>.
+   Returns a list of result-sets (per the provided
+   <query>), in the same order as <dbs>."
+  [dbs query xform]
+  `(for [db# ~dbs] (q db# ~query ~xform)))
 

@@ -14,3 +14,11 @@
   (some
     #(when (pred %) %)
     coll))
+
+(defn map-vals
+  [f coll]
+  (persistent!
+    (reduce-kv
+      (fn [acc k v] (assoc! acc k (f v)))
+      (transient {})
+      coll)))
