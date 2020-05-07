@@ -65,21 +65,24 @@
   (require '[clj-memory-meter.core :as mm])
   (mm/measure @world-db) ;; => "2.6 MB"
 
-  ()
 
   (Q/q @world-db
-       {:find (?name ?capital)
+       {:find (?name ?capital ?currency-id)
         :where [[?e :country/name    ?name]
                 [?e :country/capital (str/starts-with? ?capital "A")]
-                [?e :country/currency ^:in?
-                 {:find  #{?currency-id}
-                  :where [[?currency-id :currency/a3-code ^:in? #{"EUR" "USD"}]]}]
+                [?e :country/currency ?currency-id]
 
                 ]
+        :join [{:type :inner
+                :from {:find  [?currency-id ?minor-units]
+                       :where [[?currency-id :currency/a3-code ^:in? #{"EUR" "USD"}]
+                               [?currency-id :currency/minor-units ?minor-units]]}
+                :on [:currency-id]
+                }]
         :order-by [?capital :desc]
 
         }
-       ;(map :country-name)
+       ;(map #(select-keys % [:country-name :currency/a3-code]))
        )
 
 

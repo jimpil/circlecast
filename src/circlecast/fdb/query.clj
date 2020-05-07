@@ -1,6 +1,7 @@
 (ns circlecast.fdb.query
   (:require [clojure.set :as CS]
-            [circlecast.fdb.constructs :as impl])
+            [circlecast.fdb.constructs :as impl]
+            [circlecast.fdb.tables :as tbl])
   (:import (java.util ArrayList)))
 
 (defn variable?
@@ -193,9 +194,9 @@
 (defmacro q*
   [db query]
   `(let [pred-clauses# (q-clauses-to-pred-clauses ~db ~(:where query)) ; transforming the clauses of the query to an internal representation structure called query-clauses
-        needed-vars#  (symbol-col-to-set ~(:find query))  ; extracting from the query the variables that needs to be reported out as a set
-        query-plan#   (build-query-plan pred-clauses#) ; extracting a query plan based on the query-clauses
-        query-internal-res# (query-plan# ~db)] ;executing the plan on the database
+         needed-vars#  (symbol-col-to-set ~(:find query))  ; extracting from the query the variables that needs to be reported out as a set
+         query-plan#   (build-query-plan pred-clauses#) ; extracting a query plan based on the query-clauses
+         query-internal-res# (query-plan# ~db)] ;executing the plan on the database
      (unify query-internal-res# needed-vars#))) ;unifying the query result with the needed variables to report out what the user asked for
 
 
@@ -230,7 +231,8 @@
 
 (defonce directions #{:asc :desc})
 
-(defmacro order-by [order-keys]
+(defmacro order-by
+  [order-keys]
   `(when-let [ks# (not-empty ~order-keys)]
      (let [direction# (directions (peek ks#))
            descending?# (= :desc direction#)]
@@ -239,6 +241,27 @@
                  descending?# pop
                  true (map (comp keyword #(subs % 1) str))
                  true vec)])))
+
+(defmacro joining*
+  [db joining-clauses]
+  (vec
+    (for [clause joining-clauses]
+      `(assoc '~clause :jrs
+         (realise* ~db ~(:from clause)
+                   (map identity)
+                   (order-by ~(:order-by clause))
+                   (empty ~(:find clause)))))))
+
+(defn do-join
+  [left {:keys [type on jrs]
+         :or {type :natural}}]
+  (case type
+      :natural     (tbl/natural-join left jrs)
+      :cross       (tbl/cross-join   left jrs)
+      :inner       (apply tbl/inner-join left jrs on)
+      :left-outer  (apply tbl/left-outer-join  left jrs on)
+      :right-outer (apply tbl/right-outer-join left jrs on)
+      :full-outer  (apply tbl/full-outer-join  left jrs on)))
 
 ;; public API
 
@@ -249,11 +272,22 @@
   ([db query]
    `(q ~db ~query nil))
   ([db query xform]
-   `(realise* ~db
-              ~query
-              (or ~xform (map identity))
-              ~(order-by (:order-by query))
-              ~(empty (:find query)))))
+   `(let [DB# ~db
+          joins# '~(:join query)
+          no-joins?# (empty? joins#)
+          ;_# (println joins#)
+          ret# (realise* DB#
+                        ~query
+                        (or ~xform (map identity))
+                        (when no-joins?#
+                          ~(order-by (:order-by query)))
+                        ~(empty (:find query)))]
+      (if no-joins?#
+        ret#
+        (let [[cmp# ks#] ~(order-by (:order-by query))
+              joined-ret# (reduce do-join ret# (joining* DB# ~(:join query)))]
+          (cond->> joined-ret#
+                   ks# (sort-by (apply juxt ks#) cmp#)))))))
 
 (defmacro q-all
   "Executes the same query on multiple <dbs>.
