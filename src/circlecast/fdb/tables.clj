@@ -58,12 +58,14 @@
          ;keys-b (keys (first right-coll)) ;The column names of coll-b
          indexed-left  (group-by left-join-fn  left-coll) ;indexes the coll-a using join-fn-a
          indexed-right (group-by right-join-fn right-coll) ;indexes the coll-b using join-fn-b
-         desired-joins (join-style (keys indexed-left) (keys indexed-right))]
-     (mapcat
-       (fn [joined-value]
-         (for [left-side  (get indexed-left  joined-value [{}])
-               right-side (get indexed-right joined-value [{}])]
-           (merge left-side right-side)))
+         desired-joins (join-style (keys indexed-left) (keys indexed-right))
+         into*  (ut/into-container-fn left-coll)]
+     (into*
+       (mapcat
+         (fn [joined-value]
+           (for [left-side  (get indexed-left  joined-value [{}])
+                 right-side (get indexed-right joined-value [{}])]
+             (merge left-side right-side))))
        desired-joins))))
 
 (defmacro defjoin

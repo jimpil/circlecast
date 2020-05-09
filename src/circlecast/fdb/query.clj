@@ -18,7 +18,7 @@
     (list? clause-term)
     (first (filter #(variable? % false)  (map str clause-term))) ; the item is an s-expression, need to treat it as a coll, by going over it and returning the name of the variable
     (variable? (str clause-term) false) (str clause-term) ; the item is a simple variable
-    :no-variable-in-clause nil)) ; the item is a value and not a variable
+    :else nil)) ; the item is a value and not a variable
 
 (declare q)
 (defmacro clause-term-expr
@@ -51,7 +51,8 @@
 (defmacro  pred-clause
   "Builds a predicate-clause from a query clause (a vector with three elements describing EAV).
    A predicate clause is a vector of predicates that would operate on
-    an index, and set for that vector's metadata to be the names of the variables that the user assigned for each item in the clause"
+    an index, and set for that vector's metadata to be the names of the variables that the user
+    assigned for each item in the clause"
   [db clause]
   (loop [[trm# & rst-trm#] clause
            exprs# []
@@ -75,10 +76,6 @@
   "Function that accepts an index and a path-predicate (which is a tripet of predicates to apply on paths in an index).
    For each path predicates it creates a result path (a triplet representing one path in the index) and returns a seq of result paths."
   [index predicate-clauses]
-  ;(clojure.pprint/pprint index)
-  ;(clojure.pprint/pprint (dissoc (get index :country/currency) nil))
-  ;(clojure.pprint/pprint (dissoc (get index :currency/a3-code) nil))
-
   (for [ pred-clause predicate-clauses
         :let [[lvl1-prd lvl2-prd lvl3-prd]
               (apply (impl/from-eav index) pred-clause)] ; predicates for the first and second level of the index, also keeping the path to later use its meta
@@ -111,7 +108,9 @@
   "This function returns for a (result) path a seq of vectors, each vector is a path from the root of the result path to one of its items, each item
   is followed by its variable name as was inserted in the query (which was kept at the metadata of the (result) path."
   [from-eav-fn path]
-  (let [expanded-path [(repeat (first path)) (repeat (second path)) (peek path)] ; there may be several leaves in each path, so repeating the first and second elements
+  (let [expanded-path [(repeat (first path))
+                       (repeat (second path))
+                       (peek path)] ; there may be several leaves in each path, so repeating the first and second elements
         meta-of-path (apply from-eav-fn (map repeat (:db/variable (meta path)))) ; re-ordering the path's meta to be in the order of the index
         combined-data-and-meta-path (interleave meta-of-path expanded-path)]
     (apply (partial map vector) combined-data-and-meta-path))) ; returning a seq of vectors, each one is a single result with its meta
@@ -122,8 +121,8 @@
    of an attribute, and the value is a binding pair of that found attribute's value. The symbol name in each binding pair is extracted from the tripet's metadata"
   [q-res index]
   (let [seq-res-path (mapcat (partial combine-path-and-meta (impl/from-eav index)) q-res) ; seq-ing a result to hold the meta
-        res-path (map #(->> %1 (partition 2)(apply (impl/to-eav index))) seq-res-path)] ; making binding pairs
-    (reduce #(assoc-in %1  (butlast %2) (last %2)) {} res-path))) ; structuring the pairs into the wanted binding structure
+        res-path (map #(->> %1 (partition 2) (apply (impl/to-eav index))) seq-res-path)] ; making binding pairs
+    (reduce #(assoc-in %1 (butlast %2) (last %2)) {} res-path))) ; structuring the pairs into the wanted binding structure
 
 (defn query-index
   "Querying an index based a seq of predicate clauses. A  predicate clause is composed of 3 predicates, each one to operate on a different level of the index. Querying an index with
@@ -131,9 +130,9 @@
   only the last-level-items that are part of all the result-clauses."
   [index pred-clauses]
   (let [result-clauses (filter-index index pred-clauses) ; the predicate clauses from the root of the index to the leaves (a leaf of an index is a set)
-        relevant-items (items-that-answer-all-conditions (map last result-clauses) (count pred-clauses)) ; the set of elements, each answers all the pred-clauses
-        cleaned-result-clauses (map (partial mask-path-leaf-with-items relevant-items)  result-clauses)] ; the result clauses, now their leaves are filtered to have only the items that fulfilled the predicates
-    (filter #(seq (peek %)) cleaned-result-clauses))) ; of these, we'll build a subset of the index that contains the clauses with the leaves (sets), and these leaves contain only the valid items
+        relevant-items (items-that-answer-all-conditions (map peek result-clauses) (count pred-clauses)) ; the set of elements, each answers all the pred-clauses
+        cleaned-result-clauses (map (partial mask-path-leaf-with-items relevant-items) result-clauses)] ; the result clauses, now their leaves are filtered to have only the items that fulfilled the predicates
+    (filter (comp seq peek) cleaned-result-clauses))) ; of these, we'll build a subset of the index that contains the clauses with the leaves (sets), and these leaves contain only the valid items
 
 (defn single-index-query-plan
   "A query plan that is based on querying a single index"
@@ -159,12 +158,13 @@
     (partial single-index-query-plan query ind-to-use)))
 
 (defn resultify-bind-pair
-  "A bind pair is composed of two elements - the variable name and its value. Resultifying means to check whether the variable is suppose to be part of the
-  result, and if it does, adds it to the accumulated result"
+  "A bind pair is composed of two elements - the variable name and its value.
+   Resultifying means to check whether the variable is suppose to be part of the
+   result, and if it does, adds it to the accumulated result."
   [vars-set accum pair]
   (let [[var-name v] pair]
     (cond-> accum
-            (contains? vars-set var-name)
+            (vars-set var-name)
             (assoc (keyword (subs var-name 1)) v))))
 
 (defn resultify-av-pair
@@ -188,13 +188,26 @@
     binded-res-col))
 
 (defmacro symbol-col-to-set
-  [coll]
-  (set (map str coll)))
+  [find-clause where-clause]
+  (if (= '* (first find-clause))
+    ;; set of all vars appearing in the :where clause
+    (let [all-vars (volatile! #{})]
+      (clojure.walk/postwalk
+        (fn [x]
+          (when (symbol? x)
+            (let [sx (str x)]
+              (when (variable? sx false)
+                (vswap! all-vars conj sx))))
+          x)
+        where-clause)
+      @all-vars)
+    ;; ;; set of all vars provided in the :find clause
+    (set (map str find-clause))))
 
 (defmacro q*
   [db query]
   `(let [pred-clauses# (q-clauses-to-pred-clauses ~db ~(:where query)) ; transforming the clauses of the query to an internal representation structure called query-clauses
-         needed-vars#  (symbol-col-to-set ~(:find query))  ; extracting from the query the variables that needs to be reported out as a set
+         needed-vars#  (symbol-col-to-set ~(:find query) '~(:where query))  ; extracting from the query the variables that needs to be reported out as a set
          query-plan#   (build-query-plan pred-clauses#) ; extracting a query plan based on the query-clauses
          query-internal-res# (query-plan# ~db)] ;executing the plan on the database
      (unify query-internal-res# needed-vars#))) ;unifying the query result with the needed variables to report out what the user asked for
@@ -213,14 +226,14 @@
          ([]
           (rf))
          ([xs]
-          (reduce rf xs (sort-by kfn cmp (vec (.toArray temp-list)))))
+          (reduce rf xs (sort-by kfn cmp (.toArray temp-list))))
          ([xs x]
           (.add temp-list x)
           xs))))))
 
 (defmacro realise*
   [DB query xform order-by container]
-  (let [into-container (if (list? container) `sequence `(partial into ~container))] ;; list/set/vector
+  (let [into-container (if (seq? container) `sequence `(partial into ~container))] ;; list/set/vector
     `(~into-container
        (cond-> ~xform
                ~order-by
@@ -276,18 +289,18 @@
    `(let [DB# ~db
           joins# '~(:join query)
           no-joins?# (empty? joins#)
+          container# ~(empty (:find query))
           ;_# (println joins#)
           ret# (realise* DB#
                         ~query
                         (or ~xform (map identity))
                         (when no-joins?#
                           ~(order-by (:order-by query)))
-                        ~(empty (:find query)))]
+                        container#)]
       (if no-joins?#
         ret#
-        (let [[cmp# ks#] ~(order-by (:order-by query))
-              joined-ret# (reduce do-join ret# (joining* DB# ~(:join query)))]
-          (cond->> joined-ret#
+        (let [[cmp# ks#] ~(order-by (:order-by query))]
+          (cond->> (reduce do-join ret# (joining* DB# ~(:join query)))
                    ks# (sort-by (apply juxt ks#) cmp#)))))))
 
 (defmacro q-all

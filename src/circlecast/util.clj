@@ -22,3 +22,9 @@
       (fn [acc k v] (assoc! acc k (f v)))
       (transient {})
       coll)))
+
+(defn into-container-fn
+  [coll]
+  (if (seq? coll)
+    sequence
+    (partial into (empty coll))))

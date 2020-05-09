@@ -5,7 +5,8 @@
             [circlecast.data.countries :as countries]
             [circlecast.fdb.manage :as M]
             [circlecast.fdb.query :as Q]
-            [circlecast.fdb.core :as core])
+            [circlecast.fdb.core :as core]
+            [circlecast.util :as ut])
   (:import (java.text Normalizer Normalizer$Form)))
 
 
@@ -49,42 +50,130 @@
 
 (def world-db (M/get-db-conn "world"))
 
+(defonce setup-world!
+  (memoize
+    (fn []
+      (core/transact! world-db (core/add-entities (make-currencies @countries/currencies)))
+      (core/transact! world-db (core/add-entities
+                                 (make-countries (countries/country-data) (->> @world-db
+                                                                               impl/last-layer-storage
+                                                                               (map (juxt (comp :value :currency/entity :attrs val) key))
+                                                                               (into {})))))
+
+
+      :done)))
+
+(deftest query-tests
+
+  (setup-world!)
+
+  (testing "find all country names and their capitals - ordered vector of maps"
+    (let [ret (Q/q @world-db
+                   {:find  [*]  ;[?country-name ?capital]
+                    :where [[?e :country/name ?country-name]
+                            [?e :country/capital ?capital]]
+                    :order-by [?capital :desc]})]
+
+      (is (= 250 (count ret)))
+      (is (vector? ret))
+      (is (every? map? ret))
+      (is (every? some? (map :country-name ret)))
+      (is (every? some? (map :capital ret)))))
+
+  (testing "find all country names - set of raw values"
+    (let [ret (Q/q @world-db
+                   {:find #{?country-name}
+                    :where [[?e :country/name ?country-name]]}
+                   (map :country-name))]
+
+      (is (= 250 (count ret)))
+      (is (set? ret))
+      (is (every? string? ret))))
+
+
+  (testing "find all capital names that start with 'A' - sequence of raw values"
+    (let [ret (Q/q @world-db
+                   {:find (?capital)
+                    :where [[?e :country/capital (str/starts-with? ?capital "A")]]}
+                   (map :capital))]
+
+      (is (= 19 (count ret)))
+      (is (seq? ret))
+      (is (every? #(str/starts-with? % "A") ret))))
+
+  (testing "find all country names whose currency is EUR (via nested query) - sequence of maps"
+    (let [ret (Q/q @world-db
+                   {:find (?country-name)
+                    :where [[?e :country/name ?country-name]
+                            [?e :country/currency
+                             ^:in? {:find  #{?currency-id}
+                                    :where [[?currency-id :currency/a3-code "EUR"]]}]]})]
+
+      (is (= 27 (count ret)))
+      (is (seq? ret))
+      (is (every? map? ret))))
+
+  (testing "find the capital names and minor-units of all countries whose currency is EUR/OMR (via inner join) - vector of maps"
+    (let [ret (Q/q @world-db
+                   {:find [?capital ?currency-id]
+                    :where [[?e :country/capital ?capital]
+                            [?e :country/currency ?currency-id]]
+                    :join [{:type :inner
+                            ;:db
+                            :from {:find  [?currency-id ?minor-units]
+                                   :where [[?currency-id :currency/a3-code ^:in? #{"EUR" "OMR"}]
+                                           [?currency-id :currency/minor-units ?minor-units]]}
+                            :on [:currency-id]
+                            }]
+                    })]
+
+      (is (= 28 (count ret)))
+      (is (vector? ret))
+      (is (every? map? ret))
+      )
+    )
+
+
+  (testing "find the capital names and a3-code/minor-units of all countries whose currency is EUR/OMR (via inner join) in descending order - seq of maps"
+    (let [ret (Q/q @world-db
+                   {:find [?capital ?currency-id]
+                    :where [[?e :country/capital  ?capital]
+                            [?e :country/currency ?currency-id]]
+                    :join [{:type :inner
+                            ;:db @some-other-db
+                            :from {:find  [?currency-id ?minor-units ?currency-a3]
+                                   :where [[?currency-id :currency/a3-code ^:in? #{"EUR" "OMR"}]
+                                           ;; binding a restricted variable for return MUST
+                                           ;; come after the restrictive clause
+                                           [?currency-id :currency/a3-code     ?currency-a3]
+                                           [?currency-id :currency/minor-units ?minor-units]]}
+                            :on [:currency-id]}]
+                    :order-by [?minor-units ?capital :desc]
+                    })]
+
+      (is (= 28 (count ret)))
+      (is (sequential? ret)) ;; always expect seq for ordered results
+      (is (every? map? ret))
+      (is (= ["Muscat" "OMR" 3] ((juxt :capital :currency-a3 :minor-units) (first ret))))
+      )
+    )
+
+
+
+  )
+
 (comment
 
   ;; world setup
-  (core/transact! world-db
-                  (core/add-entities (make-currencies @countries/currencies)))
 
-  (let [curr-name->curr-id  (->> @world-db
-                                 impl/last-layer-storage
-                                 (map (juxt (comp :value :currency/entity :attrs val) key))
-                                 (into {}))]
-    (core/transact! world-db (core/add-entities
-                               (make-countries (countries/country-data) curr-name->curr-id))))
+
+
 
   (require '[clj-memory-meter.core :as mm])
   (mm/measure @world-db) ;; => "2.6 MB"
 
 
-  (Q/q @world-db
-       {:find (?name ?capital ?currency-id)
-        :where [[?e :country/name    ?name]
-                [?e :country/capital (str/starts-with? ?capital "A")]
-                [?e :country/currency ?currency-id]
 
-                ]
-        :join [{:type :inner
-                ;:db
-                :from {:find  [?currency-id ?minor-units]
-                       :where [[?currency-id :currency/a3-code ^:in? #{"EUR" "USD"}]
-                               [?currency-id :currency/minor-units ?minor-units]]}
-                :on [:currency-id]
-                }]
-        :order-by [?capital :desc]
-
-        }
-       ;(map #(select-keys % [:country-name :currency/a3-code]))
-       )
 
 
 
