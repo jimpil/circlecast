@@ -58,7 +58,8 @@ denoting the order direction (defaults to `:asc`).
 ### Peculiarities 
 Even though queries are pure data, the API exposed is macro-based. This means that queries (second argument to `q`) must be compile-time constants.
 If you want to define the actual queries (the maps) in a separate place than the querying itself, there is a helper macro `with-query`, 
-and q-variants (`qv` for Vars, `qf` for functions) that build upon it. For example:
+and q-variants (`qv` for vars, `qs` for symbols, `qf` for functions) that build upon it. 
+For example:
 
 ```clj
 (def all-country-names-query  ;; define a Var

@@ -223,12 +223,16 @@
    (fn [rf]
      (let [temp-list (ArrayList.)]
        (fn
-         ([]
-          (rf))
+         ([] (rf))
          ([xs]
-          (reduce rf xs (sort-by kfn cmp (.toArray temp-list))))
-         ([xs x]
-          (.add temp-list x)
+          (->> temp-list
+               (sort-by kfn cmp)
+               (reduce rf xs)
+               unreduced
+               rf))
+         ([xs x] unreduced
+          (when-not (reduced? xs)
+            (.add temp-list x))
           xs))))))
 
 (defmacro realise*
@@ -318,7 +322,7 @@
   [query [op db _ xform]]
   `(~op ~db ~query ~xform))
 
-;; Queries as Vars
+;; Queries as vars
 (defmacro qv
   "Similar to `q` but expects the <query> as a Var."
   ([db query]
@@ -363,5 +367,28 @@
    `(do
       (assert (fn? ~query) "`qf-all` expects the query as a function!")
       (with-query ~((eval query)) (q-all ~db nil ~xform)))))
+
+;; Queries as symbols
+(defmacro qs
+  "Similar to `q` but expects the <query> as a namespaced symbol."
+  ([db query]
+   `(do
+      (assert (symbol? ~query) "`qs` expects the query as a symbol!")
+      (with-query ~(resolve (eval query)) (q ~db nil nil))))
+  ([db query xform]
+   `(do
+      (assert (symbol? ~query) "`qs` expects the query as a symbol!")
+      (with-query ~(resolve (eval query)) (q ~db nil ~xform)))))
+
+(defmacro qs-all
+  "Similar to `q-all` but expects the <query> as a namespaced symbol."
+  ([db query]
+   `(do
+      (assert (symbol? ~query) "`qs-all` expects the query as a symbol!")
+      (with-query ~(resolve (eval query)) (q-all ~db nil nil))))
+  ([db query xform]
+   `(do
+      (assert (symbol? ~query) "`qs-all` expects the query as a symbol!")
+      (with-query ~(resolve (eval query)) (q-all ~db nil ~xform)))))
 
 
