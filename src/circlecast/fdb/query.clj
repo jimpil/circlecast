@@ -267,9 +267,9 @@
                    (empty ~(:find clause)))))))
 
 (defn do-join
-  [left {:keys [type on jrs]
-         :or {type :natural}}]
-  (case type
+  [left {:keys [style on jrs]
+         :or {style :natural}}]
+  (case style
       :natural     (tbl/natural-join left jrs)
       :cross       (tbl/cross-join   left jrs)
       :inner       (apply tbl/inner-join left jrs on)
@@ -307,6 +307,61 @@
   "Executes the same query on multiple <dbs>.
    Returns a list of result-sets (per the provided
    <query>), in the same order as <dbs>."
-  [dbs query xform]
-  `(for [db# ~dbs] (q db# ~query ~xform)))
+  ([dbs query]
+   `(for [db# ~dbs] (q db# ~query)))
+  ([dbs query xform]
+   `(for [db# ~dbs] (q db# ~query ~xform))))
+
+(defmacro with-query
+  "Helper macro for avoiding having to pass queries as
+   compile-time constants. Takes a <query> "
+  [query [op db _ xform]]
+  `(~op ~db ~query ~xform))
+
+;; Queries as Vars
+(defmacro qv
+  "Similar to `q` but expects the <query> as a Var."
+  ([db query]
+   `(do
+      (assert (var? ~query) "`qv` expects the query as a Var!")
+      (with-query ~(var-get (eval query)) (q ~db nil nil))))
+  ([db query xform]
+   `(do
+      (assert (var? ~query) "`qv` expects the query as a Var!")
+      (with-query ~(var-get (eval query)) (q ~db nil ~xform)))))
+
+(defmacro qv-all
+  "Similar to `q-all` but expects the <query> as a Var."
+  ([db query]
+   `(do
+      (assert (var? ~query) "`qv-all` expects the query as a Var!")
+      (with-query ~(var-get (eval query)) (q-all ~db nil nil))))
+  ([db query xform]
+   `(do
+      (assert (var? ~query) "`qv-all` expects the query as a Var!")
+      (with-query ~(var-get (eval query)) (q-all ~db nil ~xform)))))
+
+;; Queries as functions
+(defmacro qf
+  "Similar to `q` but expects the <query> as a no-arg function."
+  ([db query]
+   `(do
+      (assert (fn? ~query) "`qf` expects the query as a function!")
+      (with-query ~((eval query)) (q ~db nil nil))))
+  ([db query xform]
+   `(do
+      (assert (fn? ~query) "`qf` expects the query as a function!")
+      (with-query ~((eval query)) (q ~db nil ~xform)))))
+
+(defmacro qf-all
+  "Similar to `q-all` but expects the <query> as a no-arg function."
+  ([db query]
+   `(do
+      (assert (fn? ~query) "`qf-all` expects the query as a function!")
+      (with-query ~((eval query)) (q-all ~db nil nil))))
+  ([db query xform]
+   `(do
+      (assert (fn? ~query) "`qf-all` expects the query as a function!")
+      (with-query ~((eval query)) (q-all ~db nil ~xform)))))
+
 

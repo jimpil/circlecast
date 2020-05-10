@@ -55,10 +55,11 @@
     (fn []
       (core/transact! world-db (core/add-entities (make-currencies @countries/currencies)))
       (core/transact! world-db (core/add-entities
-                                 (make-countries (countries/country-data) (->> @world-db
-                                                                               impl/last-layer-storage
-                                                                               (map (juxt (comp :value :currency/entity :attrs val) key))
-                                                                               (into {})))))
+                                 (make-countries (countries/country-data)
+                                                 (->> @world-db
+                                                      impl/last-layer-storage
+                                                      (map (juxt (comp :value :currency/entity :attrs val) key))
+                                                      (into {})))))
 
 
       :done)))
@@ -118,7 +119,7 @@
                    {:find [?capital ?currency-id]
                     :where [[?e :country/capital ?capital]
                             [?e :country/currency ?currency-id]]
-                    :join [{:type :inner
+                    :join [{:style :inner
                             ;:db
                             :from {:find  [?currency-id ?minor-units]
                                    :where [[?currency-id :currency/a3-code ^:in? #{"EUR" "OMR"}]
@@ -139,7 +140,7 @@
                    {:find [?capital ?currency-id]
                     :where [[?e :country/capital  ?capital]
                             [?e :country/currency ?currency-id]]
-                    :join [{:type :inner
+                    :join [{:style :inner
                             ;:db @some-other-db
                             :from {:find  [?currency-id ?minor-units ?currency-a3]
                                    :where [[?currency-id :currency/a3-code ^:in? #{"EUR" "OMR"}]
@@ -166,16 +167,8 @@
 
   ;; world setup
 
-
-
-
   (require '[clj-memory-meter.core :as mm])
   (mm/measure @world-db) ;; => "2.6 MB"
-
-
-
-
-
 
 
   )

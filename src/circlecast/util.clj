@@ -1,6 +1,6 @@
 (ns circlecast.util
   (:require [clojure.datafy :as d])
-  (:import [java.util UUID HashMap]
+  (:import [java.util UUID]
            [java.time Instant]))
 
 (defn uuid! []
