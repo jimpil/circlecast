@@ -1,7 +1,8 @@
 (ns circlecast.fdb.query
   (:require [clojure.set :as CS]
             [circlecast.fdb.constructs :as impl]
-            [circlecast.fdb.tables :as tbl])
+            [circlecast.fdb.tables :as tbl]
+            [circlecast.util :as ut])
   (:import (java.util ArrayList)))
 
 (defn variable?
@@ -10,6 +11,10 @@
   ([x accept_?]  ; intentionally accepts a string and implemented as function and not a macro so we'd be able to use it as a HOF
    (or (and accept_? (= x "_"))
        (= (first x) \?))))
+
+(defn variable-str->kw
+  [x]
+  (keyword (subs x 1)))
 
 (defmacro clause-term-meta
   "Finds the name of the variable at an item of a datalog clause element. If no variable, returning nil"
@@ -144,48 +149,61 @@
 (defn index-of-joining-variable
   "A joining variable is the variable that is found on all of the query clauses"
   [query-clauses]
-  (let [metas-seq  (map #(:db/variable (meta %)) query-clauses) ; all the metas (which are vectors) for the query
+  (let [metas-seq  (map (comp :db/variable meta) query-clauses) ; all the metas (which are vectors) for the query
         collapsing-fn (fn [accV v] (map #(when (= %1 %2) %1) accV v)) ; going over the vectors, collapsing each onto another, term by term, keeping a term only if the two terms are equal
         collapsed (reduce collapsing-fn metas-seq)] ; using the above fn on the metas, eventually get a seq with one item who is not null, this is the joining variable
     (first (keep-indexed #(when (variable? %2 false) %1)  collapsed)))) ; returning the index of the first element that is a variable (there's only one)
 
-(defn build-query-plan
-  "Upon receiving a database and query clauses, this function responsible to deduce on which index in the db it is best to perform the query clauses,
-   and then return a query plan, which is a function that accepts a database and executes the plan on it."
-  [query]
-  (let [term-ind (index-of-joining-variable query)
-        ind-to-use (case (int term-ind) 0 :AVET 1 :VEAT 2 :EAVT)]
-    (partial single-index-query-plan query ind-to-use)))
+(defn index-for-variable [clause]
+  (ut/find-first variable? (-> clause meta :db/variable)))
 
 (defn resultify-bind-pair
   "A bind pair is composed of two elements - the variable name and its value.
    Resultifying means to check whether the variable is suppose to be part of the
    result, and if it does, adds it to the accumulated result."
-  [vars-set accum pair]
+  [accum pair]
   (let [[var-name v] pair]
     (cond-> accum
-            (vars-set var-name)
-            (assoc (keyword (subs var-name 1)) v))))
+            (some? var-name)
+            (assoc (variable-str->kw var-name) v))))
 
 (defn resultify-av-pair
   "An av pair is a pair composed of two binding pairs, one for an attribute and one for the attribute's value"
-  [vars-set accum-res av-pair]
-  (reduce (partial resultify-bind-pair vars-set) accum-res av-pair))
+  [accum-res av-pair]
+  (reduce resultify-bind-pair accum-res av-pair))
 
 (defn locate-vars-in-query-res
   "this function would look for all the bindings found in the query result and return the binding that were requested by the user (captured at the vars-set)"
-  [vars-set q-res]
+  [q-res]
   (let [[e-pair av-map]  q-res
-        e-res (resultify-bind-pair vars-set {} e-pair)]
-    (map (partial resultify-av-pair vars-set e-res) av-map)))
+        e-res (resultify-bind-pair {} e-pair)]
+    (map (partial resultify-av-pair e-res) av-map)))
 
 (defn unify
   "Unifying the binded query results with variables to report"
-  [binded-res-col needed-vars]
-  (eduction
-    (map (partial locate-vars-in-query-res needed-vars))
-    (map (partial apply merge))
+  [binded-res-col]
+  (map
+    (comp (partial apply merge)
+          locate-vars-in-query-res)
     binded-res-col))
+
+(defn- with-implicit-joins
+  [index-joins db]
+  (reduce tbl/natural-join
+    (map
+      #(let [term-ind   (index-of-joining-variable %)
+             ind-to-use (case (int term-ind) 0 :AVET 1 :VEAT 2 :EAVT)
+             internal-res (single-index-query-plan % ind-to-use db)]
+         ;unifying the query result with the needed variables to report out what the user asked for
+         (unify internal-res))
+      index-joins)))
+
+(defn build-query-plan
+  "Upon receiving a database and query clauses, this function responsible to deduce on which index in the db it is best to perform the query clauses,
+   and then return a query plan, which is a function that accepts a database and executes the plan on it."
+  [pred-clauses]
+  (partial with-implicit-joins
+           (partition-by index-for-variable pred-clauses)))
 
 (defmacro symbol-col-to-set
   [find-clause where-clause]
@@ -208,9 +226,10 @@
   [db query]
   `(let [pred-clauses# (q-clauses-to-pred-clauses ~db ~(:where query)) ; transforming the clauses of the query to an internal representation structure called query-clauses
          needed-vars#  (symbol-col-to-set ~(:find query) '~(:where query))  ; extracting from the query the variables that needs to be reported out as a set
-         query-plan#   (build-query-plan pred-clauses#) ; extracting a query plan based on the query-clauses
-         query-internal-res# (query-plan# ~db)] ;executing the plan on the database
-     (unify query-internal-res# needed-vars#))) ;unifying the query result with the needed variables to report out what the user asked for
+         query-plan#   (build-query-plan pred-clauses#)] ; extracting a query plan based on the query-clauses
+     ;executing the plan on the database
+     [(query-plan# ~db)
+      needed-vars#]))
 
 
 (defn xf-sort-by
@@ -237,14 +256,18 @@
 
 (defmacro realise*
   [DB query xform order-by container]
-  (let [into-container (if (seq? container) `sequence `(partial into ~container))] ;; list/set/vector
-    `(~into-container
-       (cond-> ~xform
-               ~order-by
-               (comp (xf-sort-by
-                       (apply juxt (second ~order-by))
-                       (first ~order-by))))
-       (q* ~DB ~query))))
+  (let [into-container (if (seq? container)
+                         `sequence
+                         `(partial into ~container))] ;; list/set/vector
+    `(let [[qret# needed-vars#] (q* ~DB ~query)
+           [cmp# order-ks#]  ~order-by
+           kw-vars#  (map variable-str->kw needed-vars#)]
+       (~into-container
+         (cond-> (map #(select-keys % kw-vars#))
+                 ~xform (comp ~xform)
+                 ~order-by
+                 (comp (xf-sort-by (apply juxt order-ks#) cmp#)))
+         qret#))))
 
 (defonce directions #{:asc :desc})
 
@@ -256,30 +279,8 @@
        [(if descending?# #(compare %2 %1) compare)
         (cond->> ks#
                  descending?# pop
-                 true (map (comp keyword #(subs % 1) str))
+                 true (map (comp variable-str->kw str))
                  true vec)])))
-
-(defmacro joining*
-  [db joining-clauses]
-  (vec
-    (for [clause joining-clauses]
-      `(assoc '~clause :jrs
-         (realise* ~(:db clause db)
-                   ~(:from clause)
-                   (map identity)
-                   (order-by ~(:order-by clause))
-                   (empty ~(:find clause)))))))
-
-(defn do-join
-  [left {:keys [style on jrs]
-         :or {style :natural}}]
-  (case style
-      :natural     (tbl/natural-join left jrs)
-      :cross       (tbl/cross-join   left jrs)
-      :inner       (apply tbl/inner-join left jrs on)
-      :left-outer  (apply tbl/left-outer-join  left jrs on)
-      :right-outer (apply tbl/right-outer-join left jrs on)
-      :full-outer  (apply tbl/full-outer-join  left jrs on)))
 
 ;; public API
 
@@ -290,22 +291,11 @@
   ([db query]
    `(q ~db ~query nil))
   ([db query xform]
-   `(let [DB# ~db
-          joins# '~(:join query)
-          no-joins?# (empty? joins#)
-          container# ~(empty (:find query))
-          ;_# (println joins#)
-          ret# (realise* DB#
-                        ~query
-                        (or ~xform (map identity))
-                        (when no-joins?#
-                          ~(order-by (:order-by query)))
-                        container#)]
-      (if no-joins?#
-        ret#
-        (let [[cmp# ks#] ~(order-by (:order-by query))]
-          (cond->> (reduce do-join ret# (joining* DB# ~(:join query)))
-                   ks# (sort-by (apply juxt ks#) cmp#)))))))
+   `(realise* ~db
+              ~query
+              ~xform
+              ~(order-by (:order-by query))
+              ~(empty (:find query)))))
 
 (defmacro q-all
   "Executes the same query on multiple <dbs>.

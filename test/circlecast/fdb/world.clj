@@ -114,18 +114,26 @@
       (is (seq? ret))
       (is (every? map? ret))))
 
+  (testing "find all country names whose currency is EUR (via implicit JOIN) - sequence of maps"
+    (let [ret (Q/q @world-db
+                   {:find (?country-name)
+                    :where [[?e :country/name ?country-name]
+                            [?e :country/currency ?currency-id]
+                            [?currency-id :currency/a3-code "EUR"]]})]
+
+      (is (= 27 (count ret)))
+      (is (seq? ret))
+      (is (every? map? ret))))
+
+
   (testing "find the capital names and minor-units of all countries whose currency is EUR/OMR (via inner join) - vector of maps"
     (let [ret (Q/q @world-db
-                   {:find [?capital ?currency-id]
+                   {:find [?capital ?minor-units]
                     :where [[?e :country/capital ?capital]
-                            [?e :country/currency ?currency-id]]
-                    :join [{:style :inner
-                            ;:db
-                            :from {:find  [?currency-id ?minor-units]
-                                   :where [[?currency-id :currency/a3-code ^:in? #{"EUR" "OMR"}]
-                                           [?currency-id :currency/minor-units ?minor-units]]}
-                            :on [:currency-id]
-                            }]
+                            [?e :country/currency ?currency-id]
+                            [?currency-id :currency/a3-code ^:in? #{"EUR" "OMR"}]
+                            [?currency-id :currency/minor-units ?minor-units]
+                            ]
                     })]
 
       (is (= 28 (count ret)))
@@ -137,18 +145,15 @@
 
   (testing "find the capital names and a3-code/minor-units of all countries whose currency is EUR/OMR (via inner join) in descending order - seq of maps"
     (let [ret (Q/q @world-db
-                   {:find [?capital ?currency-id]
-                    :where [[?e :country/capital  ?capital]
-                            [?e :country/currency ?currency-id]]
-                    :join [{:style :inner
-                            ;:db @some-other-db
-                            :from {:find  [?currency-id ?minor-units ?currency-a3]
-                                   :where [[?currency-id :currency/a3-code ^:in? #{"EUR" "OMR"}]
-                                           ;; binding a restricted variable for return MUST
-                                           ;; come after the restrictive clause
-                                           [?currency-id :currency/a3-code     ?currency-a3]
-                                           [?currency-id :currency/minor-units ?minor-units]]}
-                            :on [:currency-id]}]
+                   {:find [?capital ?minor-units ?currency-a3]
+                    :where [[?e :country/capital ?capital]
+                            [?e :country/currency ?currency-id]
+                            [?currency-id :currency/a3-code ^:in? #{"EUR" "OMR"}]
+                            ;; binding a restrive variable for return MUST
+                            ;; come after the restrictive clause
+                            [?currency-id :currency/a3-code     ?currency-a3]
+                            [?currency-id :currency/minor-units ?minor-units]
+                            ]
                     :order-by [?minor-units ?capital :desc]
                     })]
 
