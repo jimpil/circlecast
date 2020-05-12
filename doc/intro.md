@@ -2,14 +2,15 @@
 
 
 ## Query
-A query is represented as a Clojure map with two mandatory (`:find`, `:where`), and one optional keys (`:order-by`).
+A query is represented as a Clojure map with two mandatory (`:find`, `:where`), and two optional keys (`:params`, `:order-by`).
 It will return a sequence of maps with keys per the variables in the `:find` clause (keywordized). 
 
 ```clj
 {
- :find  [?a ?b]       ;; list/vector/set of variables (determines the returned data-structure)
- :where [[...]]       ;; vector of predeicate-clauses (3-element EAV vector) to be AND-ed - a map is interpreted as a (nested) query 
- :order-by [?a :desc] ;; vector of ordering variables with an optional keyword at the end denoting direction)
+ :find   [?a ?b]      ;; list/vector/set of variables (determines the returned data-structure)
+ :params [$x $y]      ;; sequential of parameters arriving from the outside world
+ :where  [[...]]      ;; sequential of predicate-clauses (3-element EAV vector) to be AND-ed - a map is interpreted as a (nested) query 
+ :order-by [?a :desc] ;; sequential of ordering variables with an optional keyword at the end denoting direction)
 }
 ``` 
 
@@ -63,9 +64,9 @@ For example:
 (Q/qv   @world-db #'all-country-names-query) ;; will work
 
 (defn minor-units-of [& a3-codes] ;; define a function
-  (let [code-set (with-meta (set a3-codes) {:in? true})] ;; caution!!!
+  (let [code-set (with-meta (set a3-codes) {:in? true})] ;; <<====
     {:find  '[?currency-id ?minor-units ?currency-a3]
-     :where [['?currency-id :currency/a3-code     code-set]
+     :where [['?currency-id :currency/a3-code     code-set] ;; ^:in code-set
              '[?currency-id :currency/a3-code     ?currency-a3]
              '[?currency-id :currency/minor-units ?minor-units]]}))
 

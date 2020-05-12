@@ -27,12 +27,17 @@
     )
   )
 
+(defn normalise [^String s]
+  (let [norm (Normalizer/normalize s Normalizer$Form/NFD)]
+    (cond-> norm
+            (not= norm s)
+            (str/replace "\\p{M}" ""))))
 
 (defn make-currencies
   [data]
   (for [currency data :when (empty? (get currency "Withdrawal Date"))]
     (-> (impl/make-entity)
-        (impl/add-attr (impl/make-attr :currency/entity (get currency "Entity") :string))
+        (impl/add-attr (impl/make-attr :currency/entity (normalise (get currency "Entity")) :string))
         (impl/add-attr (impl/make-attr :currency/name (get currency "Currency") :string))
         (impl/add-attr (impl/make-attr :currency/a3-code (get currency "Alphabetic Code") :string))
         (impl/add-attr (impl/make-attr :currency/num-code (get currency "Numeric Code") :string))
@@ -42,11 +47,7 @@
     )
   )
 
-(defn normalise [^String s]
-  (let [norm (Normalizer/normalize s Normalizer$Form/NFD)]
-    (cond-> norm
-            (not= norm s)
-            (str/replace "\\p{M}" ""))))
+
 
 (def world-db (M/get-db-conn "world"))
 
@@ -70,7 +71,7 @@
 
   (testing "find all country names and their capitals - ordered vector of maps"
     (let [ret (Q/q @world-db
-                   {:find  [*]  ;[?country-name ?capital]
+                   {:find  [?country-name ?capital]
                     :where [[?e :country/name ?country-name]
                             [?e :country/capital ?capital]]
                     :order-by [?capital :desc]})]

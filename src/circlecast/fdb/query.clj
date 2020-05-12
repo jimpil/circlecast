@@ -233,8 +233,7 @@
          needed-vars#  (symbol-col-to-set ~(:find query) '~(:where query))  ; extracting from the query the variables that needs to be reported out as a set
          query-plan#   (build-query-plan pred-clauses#)] ; extracting a query plan based on the query-clauses
      ;executing the plan on the database
-     [(query-plan# ~db)
-      needed-vars#]))
+     [(query-plan# ~db) needed-vars#]))
 
 
 (defn xf-sort-by
@@ -254,7 +253,7 @@
                (reduce rf xs)
                unreduced
                rf))
-         ([xs x] unreduced
+         ([xs x]
           (when-not (reduced? xs)
             (.add temp-list x))
           xs))))))
