@@ -93,13 +93,15 @@
       (is (every? string? ret))))
 
 
-  (testing "find all capital names that start with 'A' - sequence of raw values"
+  (testing "find all capital names that start with 'A' - sequence of 7 raw values"
     (let [ret (Q/q @world-db
                    {:find (?capital)
-                    :where [[?e :country/capital (str/starts-with? ?capital "A")]]}
-                   (map :capital))]
+                    :where [[?e :country/capital (str/starts-with? ?capital "A")]]
+                    :order-by [?capital]}
+                   (comp (take 7)
+                         (map :capital)))]
 
-      (is (= 19 (count ret)))
+      (is (= 7 (count ret)))
       (is (seq? ret))
       (is (every? #(str/starts-with? % "A") ret))))
 
