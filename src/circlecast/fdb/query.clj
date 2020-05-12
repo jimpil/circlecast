@@ -12,6 +12,9 @@
    (or (and accept_? (= x "_"))
        (= (first x) \?))))
 
+(defn param? [x]
+  (= (first (str x)) \$))
+
 (defn variable-str->kw
   [x]
   (keyword (subs x 1)))
@@ -53,28 +56,30 @@
     (variable? (str (second clause-term))) `#(~(first clause-term) % ~(last clause-term)) ;a binary predicate, the variable is the first argument, e.g.,  (> ?a 42)
     (variable? (str (last clause-term))) `#(~(first clause-term) ~(second clause-term) %))) ; a binary predicate, the variable is the second argument, e.g.,  (> ?a 42)
 
-(defmacro  pred-clause
+(defmacro pred-clause
   "Builds a predicate-clause from a query clause (a vector with three elements describing EAV).
    A predicate clause is a vector of predicates that would operate on
     an index, and set for that vector's metadata to be the names of the variables that the user
     assigned for each item in the clause"
-  [db clause]
+  [db clause params]
   (loop [[trm# & rst-trm#] clause
            exprs# []
            metas# []]
       (if trm#
         (recur rst-trm#
-               (conj exprs# `(clause-term-expr ~db ~trm#))
+               (conj exprs# (if (param? trm#)
+                               `(clause-term-expr ~db (get ~params ~(str trm#)))
+                               `(clause-term-expr ~db ~trm#)))
                (conj metas# `(clause-term-meta ~trm#)))
         (with-meta exprs# {:db/variable metas#}))))
 
 (defmacro q-clauses-to-pred-clauses
   "create a vector of predicate clauses to operate on indices, based on the given vector of clauses"
-  [db clauses]
+  [db clauses params]
   (loop [[frst# & rst#] clauses
          preds-vecs# []]
     (if frst#
-      (recur rst# `(conj ~preds-vecs# (pred-clause ~db ~frst#)))
+      (recur rst# `(conj ~preds-vecs# (pred-clause ~db ~frst# ~params)))
       preds-vecs#)))
 
 (defn filter-index
@@ -223,8 +228,8 @@
     (set (map str find-clause))))
 
 (defmacro q*
-  [db query]
-  `(let [pred-clauses# (q-clauses-to-pred-clauses ~db ~(:where query)) ; transforming the clauses of the query to an internal representation structure called query-clauses
+  [db query params]
+  `(let [pred-clauses# (q-clauses-to-pred-clauses ~db ~(:where query) ~params) ; transforming the clauses of the query to an internal representation structure called query-clauses
          needed-vars#  (symbol-col-to-set ~(:find query) '~(:where query))  ; extracting from the query the variables that needs to be reported out as a set
          query-plan#   (build-query-plan pred-clauses#)] ; extracting a query plan based on the query-clauses
      ;executing the plan on the database
@@ -255,11 +260,11 @@
           xs))))))
 
 (defmacro realise*
-  [DB query xform order-by container]
+  [DB [query params] xform order-by container]
   (let [into-container (if (seq? container)
                          `sequence
                          `(partial into ~container))] ;; list/set/vector
-    `(let [[qret# needed-vars#] (q* ~DB ~query)
+    `(let [[qret# needed-vars#] (q* ~DB ~query ~params)
            [cmp# order-ks#]  ~order-by
            kw-vars#  (map variable-str->kw needed-vars#)]
        (~into-container
@@ -291,8 +296,11 @@
   ([db query]
    `(q ~db ~query nil))
   ([db query xform]
+   `(q ~db ~query ~xform nil))
+  ([db query xform & params]
    `(realise* ~db
-              ~query
+              [~query ~(zipmap (map str (:params query))
+                               params)]
               ~xform
               ~(order-by (:order-by query))
               ~(empty (:find query)))))
@@ -303,14 +311,15 @@
    <query>), in the same order as <dbs>."
   ([dbs query]
    `(for [db# ~dbs] (q db# ~query)))
-  ([dbs query xform]
-   `(for [db# ~dbs] (q db# ~query ~xform))))
+  ([dbs query xform & params]
+   `(for [db# ~dbs]
+      (q db# ~query ~xform ~@params))))
 
 (defmacro with-query
   "Helper macro for avoiding having to pass queries as
    compile-time constants. Takes a <query> "
-  [query [op db _ xform]]
-  `(~op ~db ~query ~xform))
+  [query [op db _ xform & params]]
+  `(~op ~db ~query ~xform ~@params))
 
 ;; Queries as vars
 (defmacro qv
@@ -319,10 +328,10 @@
    `(do
       (assert (var? ~query) "`qv` expects the query as a Var!")
       (with-query ~(var-get (eval query)) (q ~db nil nil))))
-  ([db query xform]
+  ([db query xform & params]
    `(do
       (assert (var? ~query) "`qv` expects the query as a Var!")
-      (with-query ~(var-get (eval query)) (q ~db nil ~xform)))))
+      (with-query ~(var-get (eval query)) (q ~db nil ~xform ~@params)))))
 
 (defmacro qv-all
   "Similar to `q-all` but expects the <query> as a Var."
@@ -330,10 +339,10 @@
    `(do
       (assert (var? ~query) "`qv-all` expects the query as a Var!")
       (with-query ~(var-get (eval query)) (q-all ~db nil nil))))
-  ([db query xform]
+  ([db query xform & params]
    `(do
       (assert (var? ~query) "`qv-all` expects the query as a Var!")
-      (with-query ~(var-get (eval query)) (q-all ~db nil ~xform)))))
+      (with-query ~(var-get (eval query)) (q-all ~db nil ~xform ~@params)))))
 
 ;; Queries as functions
 (defmacro qf
@@ -342,10 +351,10 @@
    `(do
       (assert (fn? ~query) "`qf` expects the query as a function!")
       (with-query ~((eval query)) (q ~db nil nil))))
-  ([db query xform]
+  ([db query xform & params]
    `(do
       (assert (fn? ~query) "`qf` expects the query as a function!")
-      (with-query ~((eval query)) (q ~db nil ~xform)))))
+      (with-query ~((eval query)) (q ~db nil ~xform ~@params)))))
 
 (defmacro qf-all
   "Similar to `q-all` but expects the <query> as a no-arg function."
@@ -353,10 +362,10 @@
    `(do
       (assert (fn? ~query) "`qf-all` expects the query as a function!")
       (with-query ~((eval query)) (q-all ~db nil nil))))
-  ([db query xform]
+  ([db query xform & params]
    `(do
       (assert (fn? ~query) "`qf-all` expects the query as a function!")
-      (with-query ~((eval query)) (q-all ~db nil ~xform)))))
+      (with-query ~((eval query)) (q-all ~db nil ~xform ~@params)))))
 
 ;; Queries as symbols
 (defmacro qs
@@ -365,10 +374,10 @@
    `(do
       (assert (symbol? ~query) "`qs` expects the query as a symbol!")
       (with-query ~(resolve (eval query)) (q ~db nil nil))))
-  ([db query xform]
+  ([db query xform & params]
    `(do
       (assert (symbol? ~query) "`qs` expects the query as a symbol!")
-      (with-query ~(resolve (eval query)) (q ~db nil ~xform)))))
+      (with-query ~(resolve (eval query)) (q ~db nil ~xform ~@params)))))
 
 (defmacro qs-all
   "Similar to `q-all` but expects the <query> as a namespaced symbol."
@@ -376,9 +385,9 @@
    `(do
       (assert (symbol? ~query) "`qs-all` expects the query as a symbol!")
       (with-query ~(resolve (eval query)) (q-all ~db nil nil))))
-  ([db query xform]
+  ([db query xform & params]
    `(do
       (assert (symbol? ~query) "`qs-all` expects the query as a symbol!")
-      (with-query ~(resolve (eval query)) (q-all ~db nil ~xform)))))
+      (with-query ~(resolve (eval query)) (q-all ~db nil ~xform ~@params)))))
 
 
