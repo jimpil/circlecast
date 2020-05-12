@@ -115,14 +115,15 @@
       (is (every? map? ret))))
 
   (testing "find all country names whose currency is EUR (via implicit JOIN) - sequence of maps"
-    (let [ret (Q/q @world-db
+    (let [param "EUR"
+          ret (Q/q @world-db
                    {:find (?country-name)
                     :params [$A3]
                     :where [[?e :country/name ?country-name]
                             [?e :country/currency ?currency-id]
                             [?currency-id :currency/a3-code $A3]]}
                    nil
-                   "EUR")]
+                   param)]
 
       (is (= 27 (count ret)))
       (is (seq? ret))

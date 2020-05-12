@@ -299,8 +299,8 @@
    `(q ~db ~query ~xform nil))
   ([db query xform & params]
    `(realise* ~db
-              [~query ~(zipmap (map str (:params query))
-                               params)]
+              [~query (zipmap ~(mapv str (:params query))
+                              ~(vec params))]
               ~xform
               ~(order-by (:order-by query))
               ~(empty (:find query)))))
