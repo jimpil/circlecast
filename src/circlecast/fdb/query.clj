@@ -268,9 +268,9 @@
            kw-vars#  (map variable-str->kw needed-vars#)]
        (~into-container
          (cond-> (map #(select-keys % kw-vars#))
-                 ~xform (comp ~xform)
                  ~order-by
-                 (comp (xf-sort-by (apply juxt order-ks#) cmp#)))
+                 (comp (xf-sort-by (apply juxt order-ks#) cmp#))
+                 ~xform (comp ~xform))
          qret#))))
 
 (defonce directions #{:asc :desc})

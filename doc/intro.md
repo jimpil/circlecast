@@ -47,8 +47,25 @@ However, when restricting with anything else (e.g with a set via `^:in?`) you ca
 
 ### Order-by clause details
 There is not much to say here. This is a sequence of variables with an optional keyword at the end (`:asc`, `:desc`) 
-denoting the order direction (defaults to `:asc`).
- 
+denoting the order direction (defaults to `:asc`). There is a small penalty that comes with ordering, especially for large datasets. 
+That said, it should still be faster than manually sorting the final result, regardless of whether that is lazy or eager.
+
+### Limiting
+Limiting the number of results returned is not part of the query language. 
+Instead, the caller is free to pass a `(take n)` transducer as an argument to `Q/q`.
+
+```clj
+(Q/q @world-db
+     {:find (?capital)
+      :where [[?e :country/capital (str/starts-with? ?capital "A")]]
+      :order-by [?capital]}
+     (comp (take 5)        ;; <<=======
+           (map :capital)))
+
+=> ("Abu Dhabi" "Abuja" "Accra" "Adamstown" "Addis Ababa")
+```
+
+
 ### Peculiarities 
 Even though queries are pure data, the API exposed is macro-based. This means that queries (second argument to `q`) must be compile-time constants.
 If you want to define the actual queries (the maps) in a separate place than the querying itself, there is a helper macro `with-query`, 

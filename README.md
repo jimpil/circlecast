@@ -5,12 +5,12 @@
 
 ## What 
 
-[CircleDB](https://www.aosabook.org/en/500L/an-archaeology-inspired-database.html) 
+[CircleDB](https://www.aosabook.org/en/500L/an-archaeology-inspired-database.html) (revisited and improved)
 on top of [Hazelcast](https://hazelcast.com/) (see `com.hazelcast.cp.IAtomicReference` for the exact construct utilised).
 
 #### tl;dr
-An _in-memory, index-optimized, query-supporting, library developer-friendly, time-aware, functional (immutable) 
-database_, now distributed via Hazelcast (for persistence keep reading).
+A [datomic](https://www.datomic.com/)-like database. Uses `hazelcast` for _ACI_, and is compatible with `duratom` (for the _D_).
+Querying is done with a `datalog` variant. See the `intro.md` for details.  
 
 
 ## DB structure
@@ -53,7 +53,7 @@ Assuming a Hazelcast instance `hz-instance` (e.g. the result of `(Hazelcast/newH
   :curr-time 0}
 
 ```
-See test namespace `circlecast.fdb.hospital.clj` for a more involved example.
+See test namespace `circlecast.fdb.world.clj` for a more involved example.
 
 
 
