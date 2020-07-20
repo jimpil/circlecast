@@ -166,49 +166,54 @@
   "A bind pair is composed of two elements - the variable name and its value.
    Resultifying means to check whether the variable is suppose to be part of the
    result, and if it does, adds it to the accumulated result."
-  [accum pair]
+  [defaults accum pair]
   (let [[var-name v] pair]
-    (cond-> accum
-            (some? var-name)
-            (assoc (variable-str->kw var-name) v))))
+    (if (nil? var-name)
+      accum
+      (let [kw-var (variable-str->kw var-name)]
+        (assoc accum kw-var
+          (if (nil? v)
+            (get defaults kw-var)
+            v))))))
 
 (defn resultify-av-pair
   "An av pair is a pair composed of two binding pairs, one for an attribute and one for the attribute's value"
-  [accum-res av-pair]
-  (reduce resultify-bind-pair accum-res av-pair))
+  [defaults accum-res av-pair]
+  (reduce (partial resultify-bind-pair defaults) accum-res av-pair))
 
 (defn locate-vars-in-query-res
   "this function would look for all the bindings found in the query result and return the binding that were requested by the user (captured at the vars-set)"
-  [q-res]
+  [defaults q-res]
   (let [[e-pair av-map]  q-res
-        e-res (resultify-bind-pair {} e-pair)]
-    (map (partial resultify-av-pair e-res) av-map)))
+        e-res (resultify-bind-pair defaults {} e-pair)]
+    (map (partial resultify-av-pair defaults e-res) av-map)))
 
 (defn unify
   "Unifying the binded query results with variables to report"
-  [binded-res-col]
+  [binded-res-col defaults]
   (map
     (comp (partial apply merge)
-          locate-vars-in-query-res)
+          (partial locate-vars-in-query-res defaults))
     binded-res-col))
 
 (defn- with-implicit-joins
-  [index-joins db]
+  [index-joins defaults db]
   (reduce tbl/natural-join
     (map
       #(let [term-ind   (index-of-joining-variable %)
              ind-to-use (case (int term-ind) 0 :AVET 1 :VEAT 2 :EAVT)
              internal-res (single-index-query-plan % ind-to-use db)]
          ;unifying the query result with the needed variables to report out what the user asked for
-         (unify internal-res))
+         (unify internal-res defaults))
       index-joins)))
 
 (defn build-query-plan
   "Upon receiving a database and query clauses, this function responsible to deduce on which index in the db it is best to perform the query clauses,
    and then return a query plan, which is a function that accepts a database and executes the plan on it."
-  [pred-clauses]
+  [pred-clauses defaults]
   (partial with-implicit-joins
-           (partition-by index-for-variable pred-clauses)))
+           (partition-by index-for-variable pred-clauses)
+           defaults))
 
 (defmacro symbol-col-to-set
   [find-clause where-clause]
@@ -229,12 +234,15 @@
 
 (defmacro q*
   [db query params]
-  `(let [pred-clauses# (q-clauses-to-pred-clauses ~db ~(:where query) ~params) ; transforming the clauses of the query to an internal representation structure called query-clauses
-         needed-vars#  (symbol-col-to-set ~(:find query) '~(:where query))  ; extracting from the query the variables that needs to be reported out as a set
-         query-plan#   (build-query-plan pred-clauses#)] ; extracting a query plan based on the query-clauses
+  `(let [DB# ~db
+         ; transforming the clauses of the query to an internal representation structure called query-clauses
+         pred-clauses# (q-clauses-to-pred-clauses DB# ~(:where query) ~params)
+         ; extracting from the query the variables that needs to be reported out as a set
+         needed-vars#  (symbol-col-to-set ~(:find query) '~(:where query))
+         ; extracting a query plan based on the query-clauses
+         query-plan#   (build-query-plan pred-clauses# ~(:defaults query {}))]
      ;executing the plan on the database
-     [(query-plan# ~db) needed-vars#]))
-
+     [(query-plan# DB#) needed-vars#]))
 
 (defn xf-sort-by
   "A sorting transducer. Mostly a syntactic improvement to allow composition of

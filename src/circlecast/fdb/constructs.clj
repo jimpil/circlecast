@@ -2,13 +2,16 @@
   (:require [circlecast.fdb.storage :as storage]
             [circlecast.util :as ut]
             [jedi-time.core :as jdt]
-            [clojure.edn :as edn])
-  (:import [circlecast.fdb.storage InMemory]))
+            [clojure.core.protocols :as p]
+            [clojure.datafy :as d])
+  (:import [circlecast.fdb.storage InMemory]
+           (java.time Instant)
+           (java.io Writer)))
 
-(defrecord Database [layers top-id curr-time])
-(defrecord Layer    [storage VAET AVET VEAT EAVT instant])
+(defrecord Database [layers present])
+(defrecord Layer    [storage VAET AVET VEAT EAVT ^Instant tx-ts])
 (defrecord Entity   [id attrs])
-(defrecord Attr     [name value ts prev-ts])
+(defrecord Attr     [name value current previous])
 
 (defonce always (constantly true))
 
@@ -42,7 +45,7 @@
 (defn ref? [attr]
   (= :db/ref (:type (meta attr))))
 
-(def indices
+(defonce indices
   {:VAET [#(vector %3 %2 %1)
           #(vector %3 %2 %1)
           ref?]
@@ -56,18 +59,27 @@
           #(vector %1 %2 %3)
           always]})
 
-(defn- decorate-layer [layer]
+(defmethod print-method Layer [this ^Writer w]
+  (.write w (str \# (.getName Layer)))
+  (-> this
+      (update :tx-ts d/datafy)
+      (select-keys (keys this))
+      (print-method w)))
+
+(defn- decorate-layer
+  [layer]
   (reduce-kv
     #(update %1 %2 make-index %3)
-    (update layer :instant #(cond-> % (map? %) jdt/undatafy))
+    (update layer :tx-ts jdt/undatafy)
     indices))
 
 (def readers
-  "The EDN readers required to fully reconstruct the records from tagged literals."
-  {'circlecast.fdb.constructs.Database map->Database
-   'circlecast.fdb.constructs.Layer    (comp map->Layer decorate-layer)
-   'circlecast.fdb.constructs.Entity   map->Entity
-   'circlecast.fdb.constructs.Attr     map->Attr})
+  "The EDN readers required to fully reconstruct an entire DB (from the tagged literals)."
+  (merge storage/readers
+    {'circlecast.fdb.constructs.Database map->Database
+     'circlecast.fdb.constructs.Layer    (comp decorate-layer map->Layer)
+     'circlecast.fdb.constructs.Entity   map->Entity
+     'circlecast.fdb.constructs.Attr     map->Attr}))
 
 (defn make-db
   "Create an empty database"
@@ -83,47 +95,48 @@
           (make-index (:VEAT indices)) ; VEAT - for filtering
           (make-index (:EAVT indices)) ; EAVT - for filtering
           (ut/now-instant!))]
-       "0"
        0))))
 
 (defn entity-at
   "the entity with the given ent-id at the given time (defaults to the latest time)"
   ([db ent-id]
-   (entity-at db nil ent-id))
-  ([db ts ent-id]
+   (entity-at db (:present db) ent-id))
+  ([db nlayer ent-id]
    (-> db
-       (get-in [:layers ts :storage])
+       (get-in [:layers nlayer :storage])
        (storage/get-entity ent-id))))
 
 (defn attr-at
-  "The attribute of an entity at a given time (defaults to recent time)"
-  ([db ent-id attr-name]
-   (attr-at db ent-id attr-name (:curr-time db)))
-  ([db ent-id attr-name ts]
+  "Returns the attribute of an entity at a given layer - defaults to current one."
+  ([^Database db ent-id attr-name]
+   (attr-at db ent-id attr-name (:present db)))
+  ([^Database db ent-id attr-name nlayer]
    (-> db
-       (entity-at ts ent-id)
+       (entity-at nlayer ent-id)
        (get-in [:attrs attr-name]))))
 
 (defn value-of-at
-  "value of a datom at a given time, if no time is provided, we default to the most recent value"
+  "Returns the value of a datom at a given time.
+   If no layer is provided, defaults to the current (most recent) one."
   ([db ent-id attr-name]
    (-> db (attr-at ent-id attr-name) :value))
-  ([db ent-id attr-name ts]
-   (-> db (attr-at  ent-id attr-name ts) :value)))
+  ([db ent-id attr-name nlayer]
+   (-> db (attr-at  ent-id attr-name nlayer) :value)))
 
 (defn indx-at
-  "inspecting a specific index at a given time, defaults to current.
-  The kind argument mayone of the index name (e.g., AVET)"
+  "Inspecting a specific index at a given time, defaults to current.
+   The kind argument may be one of the index name (e.g., AVET)."
   ([db kind]
-   (indx-at db kind (:curr-time db)))
-  ([db kind ts]
-   (kind ((:layers db) ts))))
-
-(defn collify [x] (if (coll? x) x [x]))
-
+   (indx-at db kind (:present db)))
+  ([db kind nlayer]
+   (-> db
+       :layers
+       (get nlayer)
+       (get kind))))
 
 (defn make-entity
-  "creates an entity, if id is not supplied, a running id is assigned to the entity"
+  "Creates an entity. If id is not supplied (recommended),
+   a UUID is assigned to the entity."
   ([]
    (make-entity :db/no-id-yet))
   ([id]
@@ -148,15 +161,17 @@
                    :cardinality cardinality} ))))
 
 (defn add-attr
-  "adds an attribute to an entity"
+  "Adds an attribute to an entity."
   [ent attr]
   (let [attr-id (keyword (:name attr))]
     (assoc-in ent [:attrs attr-id] attr)))
 
-(defn last-layer
-  [^Database db]
+(defn current-layer
+  "Returns the last Layer in the provided <db>."
+  [db]
   (-> db :layers peek))
 
-(def last-layer-storage
-  (comp :storage last-layer))
+(def current-storage
+  "Returns the :storage of the last Layer in the provided <db>."
+  (comp :storage current-layer))
 

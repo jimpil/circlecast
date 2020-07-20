@@ -3,28 +3,22 @@
   (:import [java.util UUID]
            [java.time Instant]))
 
-(defn uuid! []
-  (-> (UUID/randomUUID) str))
-
-(defn now-instant! []
-  (-> (Instant/now) d/datafy))
+(defn uuid! [] (-> (UUID/randomUUID) str))
+(defn now-instant! [] (Instant/now))
 
 (defn find-first
   [pred coll]
-  (some
-    #(when (pred %) %)
-    coll))
+  (some #(when (pred %) %) coll))
 
 (defn map-vals
-  [f coll]
+  "Maps <f> across all values of map <m>."
+  [f m]
   (persistent!
     (reduce-kv
       (fn [acc k v] (assoc! acc k (f v)))
       (transient {})
-      coll)))
+      m)))
 
-(defn into-container-fn
-  [coll]
-  (if (seq? coll)
-    sequence
-    (partial into (empty coll))))
+(defn collify [x]
+  (if (coll? x) x [x]))
+

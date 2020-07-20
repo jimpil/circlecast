@@ -5,17 +5,15 @@
             [circlecast.fdb.storage :as storage]))
 
 (defn- next-ts [db]
-  (inc (:curr-time db)))
+  (inc (:present db)))
 
 (defn- next-id
   "returns a pair composed of the id to use for the given entity and the next free running id in the database"
-  [db ent]
-  (let [top-id (:top-id db)
-        ent-id (:id ent)
-        increased-id #_(inc top-id) (ut/uuid!)]
+  [ent]
+  (let [ent-id (:id ent)]
     (if (= ent-id :db/no-id-yet)
-      [increased-id increased-id]
-      [ent-id top-id])))
+      (ut/uuid!)
+      ent-id)))
 
 (defn- update-attr-value
   "updating the attribute value based on the kind of the operation,
@@ -31,7 +29,7 @@
 (defn- update-creation-ts
   "updates the timestamp value of all the attributes of an entity to the given timestamp"
   [ent ts-val]
-  (reduce #(assoc-in %1 [:attrs %2 :ts] ts-val) ent (keys (:attrs ent))))
+  (reduce #(assoc-in %1 [:attrs %2 :current] ts-val) ent (keys (:attrs ent))))
 
 (defn- update-entry-in-index
   [index path operation]
@@ -42,7 +40,7 @@
 
 (defn- update-attr-in-index
   [index ent-id attr-name target-val operation]
-  (let [colled-target-val (impl/collify target-val)
+  (let [colled-target-val (ut/collify target-val)
         update-entry-fn (fn [indx vl] (update-entry-in-index indx ((impl/from-eav index) ent-id attr-name vl) operation))]
     (reduce update-entry-fn index colled-target-val)))
 
@@ -50,35 +48,34 @@
   (let [ent-id (:id ent)
         index (ind-name layer)
         all-attrs  (vals (:attrs ent))
-        relevant-attrs (filter #((impl/usage-pred index) %) all-attrs )
+        relevant-attrs (filter #((impl/usage-pred index) %) all-attrs)
         add-in-index-fn (fn [ind attr] (update-attr-in-index ind ent-id (:name attr) (:value attr) :db/add))]
     (assoc layer ind-name (reduce add-in-index-fn index relevant-attrs))))
 
 (defn- fix-new-entity
   [db ent]
-  (let [[ent-id next-top-id] (next-id db ent)
-        new-ts (next-ts db)]
-    [(-> ent
-         (assoc :id ent-id)
-         (update-creation-ts new-ts))
-     next-top-id]))
+  (let [ent-id (next-id ent)
+        layer-index (next-ts db)]
+    (-> ent
+        (assoc :id ent-id)
+        (update-creation-ts layer-index))))
 
 (defn- append-layer
   ([db layer]
    (append-layer db layer nil))
   ([db layer next-top-id]
-   (let [layer (assoc layer :instant (ut/now-instant!))]
+   (let [layer (assoc layer :tx-ts (ut/now-instant!))]
      (cond-> db
            true (update :layers conj layer)
            next-top-id (assoc :top-id next-top-id)))))
 
 (defn add-entity
   [db ent]
-  (let [[fixed-ent next-top-id] (fix-new-entity db ent)
-        layer-with-updated-storage (-> db impl/last-layer (update :storage storage/write-entity fixed-ent))
+  (let [fixed-ent (fix-new-entity db ent)
+        layer-with-updated-storage (-> db impl/current-layer (update :storage storage/write-entity fixed-ent))
         add-fn (partial add-entity-to-index fixed-ent)
         new-layer (reduce add-fn layer-with-updated-storage (keys impl/indices))]
-    (append-layer db new-layer next-top-id)))
+    (append-layer db new-layer)))
 
 (defn add-entities
   [db ents-seq]
@@ -86,8 +83,8 @@
 
 (defn- update-attr-modification-time
   [attr new-ts]
-  (assoc attr :ts new-ts
-              :prev-ts (:ts attr)))
+  (assoc attr :current new-ts
+              :previous (:current attr)))
 
 (defn- update-attr
   [attr new-val new-ts operation]
@@ -114,7 +111,7 @@
   (if (= operation :db/add)
     index
     (let  [attr-name (:name attr)
-           datom-vals (impl/collify (:value attr))
+           datom-vals (ut/collify (:value attr))
            paths (map #((impl/from-eav index) ent-id attr-name %) datom-vals)]
       (reduce remove-entry-from-index index paths))))
 
@@ -139,24 +136,19 @@
   [layer ent-id old-attr updated-attr new-val operation]
   (let [updated-entity (-> layer :storage (put-entity ent-id updated-attr))
         new-layer (reduce (partial update-index ent-id old-attr new-val operation)
-                          layer
-                          (keys impl/indices))]
-    (-> new-layer
-        (update :storage storage/write-entity updated-entity)
-        (assoc :instant (ut/now-instant!)))))
+                          layer (keys impl/indices))]
+    (update new-layer :storage storage/write-entity updated-entity)))
 
 (defn update-entity
   ([db ent-id attr-name new-val]
    (update-entity db ent-id attr-name new-val :db/reset-to))
   ([db ent-id attr-name new-val operation]
    (let [update-ts (next-ts db)
-         layer (impl/last-layer db)
+         layer (impl/current-layer db)
          attr (impl/attr-at db ent-id attr-name)
          updated-attr (update-attr attr new-val update-ts operation)
          fully-updated-layer (update-layer layer ent-id attr updated-attr new-val operation)]
-     (append-layer db fully-updated-layer)
-
-     #_(update db :layers conj fully-updated-layer))))
+     (append-layer db fully-updated-layer))))
 
 (defn- remove-entity-from-index [ent layer ind-name]
   (let [ent-id (:id ent)
@@ -176,13 +168,13 @@
   (let [reffing-datoms (reffing-to e-id layer)
         remove-fn (fn [d [e a]] (update-entity db e a e-id :db/remove))
         clean-db (reduce remove-fn db reffing-datoms)]
-    (impl/last-layer clean-db)))
+    (impl/current-layer clean-db)))
 
 (defn remove-entity
   [db ent-id]
   (let [ent (impl/entity-at db ent-id)
-        layer (remove-back-refs db ent-id (impl/last-layer db))
-        retimed-layer (update-in layer [:VAET] dissoc ent-id)
+        layer (remove-back-refs db ent-id (impl/current-layer db))
+        retimed-layer (update layer :VAET dissoc ent-id)
         no-ent-layer (assoc retimed-layer :storage (storage/drop-entity (:storage retimed-layer) ent))
         new-layer (reduce (partial remove-entity-from-index ent) no-ent-layer (keys impl/indices))]
     (append-layer db new-layer)))
@@ -193,12 +185,10 @@
          transacted initial-db]
     (if op
       (recur rst-ops (apply (first op) transacted (rest op)))
-      (let [new-layer (peek (:layers transacted))]
+      (let [new-layer (impl/current-layer transacted)]
         (-> initial-db
             (append-layer new-layer)
-            ;(update :layers conj new-layer)
-            (assoc :curr-time (next-ts initial-db)
-                   :top-id (:top-id transacted)))))))
+            (assoc :present (next-ts initial-db)))))))
 
 (defmacro transact*
   [db exec-fn & ops]
@@ -226,11 +216,33 @@
   "The sequence of the values of an entity's attribute, as changed through time"
   [db ent-id attr-name]
   (loop [res (list)
-         ts (:curr-time db)]
-    (if (neg? ts)
+         ts (:present db)]
+    (if (neg? ts) ;; -1
       res
       (let [attr (impl/attr-at db ent-id attr-name ts)]
-        (recur (conj res {(:ts attr)
+        (recur (conj res {(:current attr)
                           (:value attr)})
-               (:prev-ts attr))))))
+               (:previous attr))))))
 
+(defn- layer-before?
+  "Returns false is the transaction-timestamp of the
+   provided <layer>, is after Instant <t>, true otherwise."
+  [t layer]
+  (>= 0 (compare (:tx-ts layer) t)))
+
+(defn time-travel
+  "Returns the db like it was at layer/time (integer/Instant) <t>.
+   If <t> is a positive integer it will include the first t layers,
+   otherwise it will include all the layers up to Instant <t>."
+  [db t]
+  (let [layers (:layers db)
+        past-layers (vec
+                      (if (and (integer? t)
+                               (pos? t))
+                        ;; assuming (nth) layer
+                        (take (inc t) layers)
+                        ;; assuming Instant
+                        (take-while (partial layer-before? t) layers)))]
+    (if (seq past-layers)
+      (impl/->Database past-layers (dec (count past-layers)))
+      (throw (IllegalStateException. "No DB subset exists for <t>!")))))

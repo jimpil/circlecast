@@ -1,7 +1,7 @@
 (ns circlecast.atoms.atomix
   (:import (clojure.lang IDeref IAtom IAtom2)))
 
-(import '(io.atomix.core.value AtomicValue))
+;(import '(io.atomix.core.value AtomicValue))
 
 ;; The API offered by atomix is inferior to the one offered by hazelcast.
 ;; As you see below, `swap!` must be implemented on top of `compare-and-set!`,
@@ -14,7 +14,7 @@
 ;; https://github.com/atomix/atomix/issues/1072
 
 
-(defn- swapx!
+#_(defn- swapx!
   [atomix-atom f & args]
   (loop [] ;; this is the best we can do for now :(
     (let [ov (deref atomix-atom)
@@ -24,7 +24,7 @@
         (recur)))))
 
 
-(deftype AtomixAtom
+#_(deftype AtomixAtom
   [^AtomicValue aref]
 
   IDeref

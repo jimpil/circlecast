@@ -4,7 +4,7 @@
             [circlecast.fdb.graph :as G]
             [circlecast.fdb.query :as Q]
             [circlecast.fdb.manage :as M]
-            [circlecast.atoms.hazelcast :as hza]
+            [hazel-atom.core :as hza]
             [clojure.set :refer (union difference)])
   (:import (com.hazelcast.core Hazelcast)))
 
@@ -144,10 +144,8 @@
                              [ ?e :test/bp-diastolic ?k] ]})
   ;;([("?e" :t3-pat2) ("?k" 80) ("?b" 140)])
 
-  (core/evolution-of (M/db-from-conn hospital-db) :pat1 :patient/symptoms)
-
-  (core/evolution-of (M/db-from-conn hospital-db) :pat1 :patient/symptoms)
-  (core/evolution-of (M/db-from-conn hospital-db) :pat1 :patient/tests)
+  (core/evolution-of @hospital-db :pat1 :patient/symptoms)
+  (core/evolution-of @hospital-db :pat1 :patient/tests)
 
   (take 7 (G/traverse-db  :pat2 @hospital-db :bfs :incoming))
 

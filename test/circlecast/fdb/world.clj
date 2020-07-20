@@ -58,7 +58,7 @@
       (core/transact! world-db (core/add-entities
                                  (make-countries (countries/country-data)
                                                  (->> @world-db
-                                                      impl/last-layer-storage
+                                                      impl/current-storage
                                                       (map (juxt (comp :value :currency/entity :attrs val) key))
                                                       (into {})))))
 

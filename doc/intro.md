@@ -28,6 +28,39 @@ in order to include all the variables found in the `:where` clause.
 The `:where` clause can be thought as a sequence of predicates. Each predicate will be compiled from the corresponding 
 3-element (EAV) vector. Implicit (natural) joins are supported, which is to say that more than one index can be queried.
 This removes the need for having a common variable in all predicate-clauses (a restriction of the original implementation).
+There is no native support for OR-ing where clauses (they are all AND-ed), but this can usually be worked around with the
+right predicate. For example `datomic` docs [showcase](https://docs.datomic.com/on-prem/query.html#or-clauses) a couple of examples:
+
+```clj
+;; datomic query (or clause)
+[:find [?medium ...]
+ :where (or [?medium :medium/format :medium.format/vinyl7]
+            [?medium :medium/format :medium.format/vinyl10]
+            [?medium :medium/format :medium.format/vinyl12]
+            [?medium :medium/format :medium.format/vinyl])]
+
+;; circlecast query (membership test)
+{:find [?medium]
+ :where [[?medium :medium/format ^:in #{:medium.format/vinyl7 
+                                        :medium.format/vinyl10 
+                                        :medium.format/vinyl12 
+                                        :medium.format/vinyl}]]}
+```
+The second example is more involving:
+
+```clj
+;; datomic query
+[:find [?artist]
+ :where (or [?artist :artist/type :artist.type/group]
+            (and [?artist :artist/type   :artist.type/person]
+                 [?artist :artist/gender :artist.gender/female]))]
+
+;; circlecast query (assuming that there are more than 2 artist types and that only persons have gender)
+{:find [?artist]
+ :where [[?artist :artist/type   ^:in #{:artist.type/group :artist.type/person}]
+         [?artist :artist/gender ^:in #{nil :artist.gender/female}]]}          
+```
+
 
  
 #### Nuisances

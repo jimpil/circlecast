@@ -5,14 +5,15 @@
 ;;;Table Utilities
 ;;;A table is defined to be a sequence of maps.
 ;;; These functions perform common operations on tables.
-(def always1
+(def ^:private always1
   "This function returns 1 regardless of inputs.
    Very useful for determining a count with pivot tables"
   (constantly 1))
 
 (defn multi-pivot
   "This function is designed to reudce a list of tuples to a single map.
-   It is supposed to take a list of alternating mapping and reduction functions.  The resulting values are stored in a vector."
+   It is supposed to take a list of alternating mapping and reduction functions.
+   The resulting values are stored in a vector."
   [coll grouping-fn & fns]
   (when (even? (count fns))
     (let [reduce-help (fn [a-fn accum-val new-val] (a-fn accum-val new-val))

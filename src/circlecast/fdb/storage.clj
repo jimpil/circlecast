@@ -1,7 +1,6 @@
 (ns circlecast.fdb.storage)
 
 (defprotocol Storage
-  (next-timestamp! [storage])
   (get-entity   [storage e-id] )
   (write-entity [storage entity])
   (drop-entity  [storage entity]))
@@ -14,3 +13,6 @@
     (assoc storage (:id entity) entity))
   (drop-entity [storage entity]
     (dissoc storage (:id entity))))
+
+(def readers
+  {'circlecast.fdb.storage.InMemory  map->InMemory})
