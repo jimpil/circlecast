@@ -3,10 +3,9 @@
             [circlecast.fdb.constructs :as impl]
             [clojure.string :as str]
             [circlecast.data.countries :as countries]
-            [circlecast.fdb.manage :as M]
             [circlecast.fdb.query :as Q]
-            [circlecast.fdb.core :as core]
-            [circlecast.util :as ut])
+            [circlecast.fdb.operations :as ops]
+            [circlecast.core :as core])
   (:import (java.text Normalizer Normalizer$Form)))
 
 
@@ -15,7 +14,16 @@
   (for [[a2-code v] country-data]
     (let [country-name (:name v)
           currency-id (country-name->currency-id (str/upper-case country-name))]
-      (-> (impl/make-entity)
+      (impl/entity-with-attributes
+        [:country/name           country-name      :string]
+        [:country/capital        (:capital v)      :string]
+        [:country/continent-code (:continent-a2 v) :string]
+        [:country/phone-code     (:phone-code v)   :string]
+        [:country/a3-code        (:a3-code v)      :string]
+        [:country/a2-code        a2-code           :string]
+        [:country/currency       currency-id       :db/ref])
+
+      #_(-> (impl/make-entity)
         (impl/add-attr (impl/make-attr :country/name           country-name      :string))
         (impl/add-attr (impl/make-attr :country/capital        (:capital v)      :string))
         (impl/add-attr (impl/make-attr :country/continent-code (:continent-a2 v) :string))
@@ -36,7 +44,14 @@
 (defn make-currencies
   [data]
   (for [currency data :when (empty? (get currency "Withdrawal Date"))]
-    (-> (impl/make-entity)
+    (impl/entity-with-attributes
+      [:currency/entity (normalise (get currency "Entity")) :string]
+      [:currency/name (get currency "Currency") :string]
+      [:currency/a3-code (get currency "Alphabetic Code") :string]
+      [:currency/num-code (get currency "Numeric Code") :string]
+      [:currency/minor-units (try (Long/parseLong (get currency "Minor unit"))
+                                  (catch NumberFormatException _ 0)) :number])
+    #_(-> (impl/make-entity)
         (impl/add-attr (impl/make-attr :currency/entity (normalise (get currency "Entity")) :string))
         (impl/add-attr (impl/make-attr :currency/name (get currency "Currency") :string))
         (impl/add-attr (impl/make-attr :currency/a3-code (get currency "Alphabetic Code") :string))
@@ -49,13 +64,13 @@
 
 
 
-(def world-db (M/get-db-conn "world"))
+(def world-db (core/get-db-conn "world"))
 
 (defonce setup-world!
   (memoize
     (fn []
-      (core/transact! world-db (core/add-entities (make-currencies @countries/currencies)))
-      (core/transact! world-db (core/add-entities
+      (core/transact! world-db (ops/add-entities (make-currencies @countries/currencies)))
+      (core/transact! world-db (ops/add-entities
                                  (make-countries (countries/country-data)
                                                  (->> @world-db
                                                       impl/current-storage

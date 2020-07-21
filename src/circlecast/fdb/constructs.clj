@@ -11,7 +11,27 @@
 (defrecord Database [layers present])
 (defrecord Layer    [storage VAET AVET VEAT EAVT ^Instant tx-ts])
 (defrecord Entity   [id attrs])
-(defrecord Attr     [name value current previous])
+(defrecord Attr     [name value cardinality db-type current previous])
+
+(extend-protocol p/Datafiable
+  Database
+  (datafy [this]
+    (-> (into {} this)
+        (update :layers (partial mapv d/datafy))))
+
+  Layer
+  (datafy [this]
+    (ut/map-vals d/datafy this))
+
+  Entity
+  (datafy [this]
+    (-> (into {} this)
+        (update :attrs (partial ut/map-vals d/datafy))))
+
+  Attr
+  (datafy [this]
+    (ut/map-vals d/datafy this))
+  )
 
 (defonce always (constantly true))
 
@@ -40,10 +60,10 @@
   (:usage-pred (meta index)))
 
 (defn single? [attr]
-  (= :db/single (:cardinality (meta attr))))
+  (= :db/single (:cardinality attr)))
 
 (defn ref? [attr]
-  (= :db/ref (:type (meta attr))))
+  (= :db/ref (:db-type attr)))
 
 (defonce indices
   {:VAET [#(vector %3 %2 %1)
@@ -100,8 +120,8 @@
 (defn entity-at
   "the entity with the given ent-id at the given time (defaults to the latest time)"
   ([db ent-id]
-   (entity-at db (:present db) ent-id))
-  ([db nlayer ent-id]
+   (entity-at db ent-id (:present db)))
+  ([db ent-id nlayer]
    (-> db
        (get-in [:layers nlayer :storage])
        (storage/get-entity ent-id))))
@@ -110,7 +130,7 @@
   "Returns the attribute of an entity at a given layer - defaults to current one."
   ([^Database db ent-id attr-name]
    (attr-at db ent-id attr-name (:present db)))
-  ([^Database db ent-id attr-name nlayer]
+  ([db ent-id attr-name nlayer]
    (-> db
        (entity-at nlayer ent-id)
        (get-in [:attrs attr-name]))))
@@ -125,7 +145,7 @@
 
 (defn indx-at
   "Inspecting a specific index at a given time, defaults to current.
-   The kind argument may be one of the index name (e.g., AVET)."
+   The kind argument may be one of the index name (e.g. :AVET)."
   ([db kind]
    (indx-at db kind (:present db)))
   ([db kind nlayer]
@@ -144,7 +164,7 @@
 
 (defn make-attr
   "creation of an attribute. The name, value and type of an attribute are mandatory arguments, further arguments can be passed as named arguments.
-   The type of the attribute may be either :string, :number, :boolean or :db/ref . If the type is :db/ref, the value is an id of another entity and indexing of backpointing is maintained.
+   The type of the attribute may be any keyword or :db/ref, in which case the value is an id of another entity and indexing of backpointing is maintained.
   The named arguments are as follows:
   :cardinality - the cardinality of an attribute, can be either:
                      :db/single - which means that this attribute can be a single value at any given time (this is the default cardinality)
@@ -152,19 +172,36 @@
                                           :db/add - adds a set of values to the currently existing set of values
                                           :db/reset-to - resets the value of this attribute to be the given set of values
                                           :db/remove - removes the given set of values from the attribute's current set of values"
-  ([name value type ; these ones are required
+  ([name value db-type ; these ones are required
     & {:keys [cardinality]
        :or {cardinality :db/single}} ]
    {:pre [(contains? #{:db/single :db/multiple} cardinality)]}
-   (-> (Attr. name value -1 -1)
-       (with-meta {:type type
-                   :cardinality cardinality} ))))
+   (Attr. name value cardinality db-type -1 -1)))
 
 (defn add-attr
   "Adds an attribute to an entity."
   [ent attr]
   (let [attr-id (keyword (:name attr))]
     (assoc-in ent [:attrs attr-id] attr)))
+
+(defn with-attributes
+  "Given an entity, adds the provided attributes to it.
+   Each attribute here is expected to be a seq of values as they would
+   be passed to `make-attr` (i.e. at least 3 elements)."
+  [entity & attrs]
+  (reduce
+    (fn [ent attr-data]
+      (->> attr-data
+           (apply make-attr)
+           (add-attr ent)))
+    entity
+    attrs))
+
+(defn entity-with-attributes
+  "Calls `with-attributes` with a newly created entity,
+   and the provided <attrs>."
+  [& attrs]
+  (apply with-attributes (make-entity) attrs))
 
 (defn current-layer
   "Returns the last Layer in the provided <db>."
@@ -174,4 +211,3 @@
 (def current-storage
   "Returns the :storage of the last Layer in the provided <db>."
   (comp :storage current-layer))
-

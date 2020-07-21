@@ -1,5 +1,5 @@
-(ns circlecast.fdb.core
-  (:require [clojure.set :as CS]
+(ns circlecast.fdb.operations
+  (:require [clojure.set :as set]
             [circlecast.util :as ut]
             [circlecast.fdb.constructs :as impl]
             [circlecast.fdb.storage :as storage]))
@@ -23,8 +23,8 @@
     (impl/single? attr)        (assoc attr :value #{value})
     ; now we're talking about an attribute of multiple values
     (= :db/reset-to operation) (assoc attr :value value)
-    (= :db/add operation)      (assoc attr :value (CS/union (:value attr)  value))
-    (= :db/remove operation)   (assoc attr :value (CS/difference (:value attr) value))))
+    (= :db/add operation)      (assoc attr :value (set/union (:value attr)  value))
+    (= :db/remove operation)   (assoc attr :value (set/difference (:value attr) value))))
 
 (defn- update-creation-ts
   "updates the timestamp value of all the attributes of an entity to the given timestamp"
@@ -41,7 +41,8 @@
 (defn- update-attr-in-index
   [index ent-id attr-name target-val operation]
   (let [colled-target-val (ut/collify target-val)
-        update-entry-fn (fn [indx vl] (update-entry-in-index indx ((impl/from-eav index) ent-id attr-name vl) operation))]
+        update-entry-fn (fn [indx vl]
+                          (update-entry-in-index indx ((impl/from-eav index) ent-id attr-name vl) operation))]
     (reduce update-entry-fn index colled-target-val)))
 
 (defn- add-entity-to-index [ent layer ind-name]
@@ -61,13 +62,10 @@
         (update-creation-ts layer-index))))
 
 (defn- append-layer
-  ([db layer]
-   (append-layer db layer nil))
-  ([db layer next-top-id]
-   (let [layer (assoc layer :tx-ts (ut/now-instant!))]
-     (cond-> db
-           true (update :layers conj layer)
-           next-top-id (assoc :top-id next-top-id)))))
+  [db layer]
+  (->> (ut/now-instant!)
+       (assoc layer :tx-ts)
+       (update db :layers conj)))
 
 (defn add-entity
   [db ent]
@@ -88,22 +86,21 @@
 
 (defn- update-attr
   [attr new-val new-ts operation]
-  {:pre  [(if (impl/single? attr)
-            (contains? #{:db/reset-to :db/remove} operation)
-            (contains? #{:db/reset-to :db/add :db/remove} operation))]}
+  {:pre [(if (impl/single? attr)
+           (contains? #{:db/reset-to :db/remove} operation)
+           (contains? #{:db/reset-to :db/add :db/remove} operation))]}
   (-> attr
       (update-attr-modification-time new-ts)
       (update-attr-value new-val operation)))
 
 (defn- remove-entry-from-index
-  [index path]
-  (let [path-head (first path)
-        path-to-items (butlast path)
-        val-to-remove (last path)
+  [index paths]
+  (let [[path-head path-to-items val-to-remove]
+        ((juxt first butlast last) paths)
         old-entries-set (get-in index path-to-items)]
     (cond
       (not (contains?  old-entries-set val-to-remove)) index ; the set of items does not contain the item to remove, => nothing to do here
-      (= 1 (count old-entries-set))  (update index path-head dissoc (second path)) ; a path that splits at the second item - just remove the unneeded part of it
+      (= 1 (count old-entries-set))  (update index path-head dissoc (second paths)) ; a path that splits at the second item - just remove the unneeded part of it
       :else (update-in index path-to-items disj val-to-remove))))
 
 (defn- remove-entries-from-index
@@ -122,7 +119,7 @@
           cleaned-index (remove-entries-from-index  ent-id operation index old-attr)
           updated-index  (if (= operation :db/remove)
                            cleaned-index
-                           (update-attr-in-index cleaned-index ent-id  (:name old-attr) target-val operation))]
+                           (update-attr-in-index cleaned-index ent-id (:name old-attr) target-val operation))]
       (assoc layer ind-name updated-index))
     layer))
 
@@ -155,7 +152,7 @@
         index (ind-name layer)
         all-attrs  (vals (:attrs ent))
         relevant-attrs (filter #((impl/usage-pred index) %) all-attrs )
-        remove-from-index-fn (partial remove-entries-from-index  ent-id  :db/remove)]
+        remove-from-index-fn (partial remove-entries-from-index ent-id :db/remove)]
     (assoc layer ind-name (reduce remove-from-index-fn index relevant-attrs))))
 
 (defn- reffing-to [e-id layer]
@@ -179,6 +176,10 @@
         new-layer (reduce (partial remove-entity-from-index ent) no-ent-layer (keys impl/indices))]
     (append-layer db new-layer)))
 
+(defn remove-entities
+  [db ents-seq]
+  (reduce remove-entity db ents-seq))
+
 (defn transact-on-db
   [initial-db ops]
   (loop [[op & rst-ops] ops
@@ -197,52 +198,5 @@
            res#  [exec-fn db `transact-on-db]
            accum-ops# []]
       (if frst-op#
-        (recur rst-ops# res#  (conj  accum-ops#  (vec frst-op#)))
+        (recur rst-ops# res# (conj accum-ops# (vec frst-op#)))
         (list* (conj res#  accum-ops#))))))
-
-(defn- what-if*
-  "Operates on the db with the given transactions,
-   but without eventually updating it"
-  [db f ops]
-  (f db ops))
-
-(defmacro what-if [db & ops]
-  `(transact* ~db what-if* ~@ops))
-
-(defmacro transact! [db-conn & ops]
-  `(transact* ~db-conn swap! ~@ops))
-
-(defn evolution-of
-  "The sequence of the values of an entity's attribute, as changed through time"
-  [db ent-id attr-name]
-  (loop [res (list)
-         ts (:present db)]
-    (if (neg? ts) ;; -1
-      res
-      (let [attr (impl/attr-at db ent-id attr-name ts)]
-        (recur (conj res {(:current attr)
-                          (:value attr)})
-               (:previous attr))))))
-
-(defn- layer-before?
-  "Returns false is the transaction-timestamp of the
-   provided <layer>, is after Instant <t>, true otherwise."
-  [t layer]
-  (>= 0 (compare (:tx-ts layer) t)))
-
-(defn time-travel
-  "Returns the db like it was at layer/time (integer/Instant) <t>.
-   If <t> is a positive integer it will include the first t layers,
-   otherwise it will include all the layers up to Instant <t>."
-  [db t]
-  (let [layers (:layers db)
-        past-layers (vec
-                      (if (and (integer? t)
-                               (pos? t))
-                        ;; assuming (nth) layer
-                        (take (inc t) layers)
-                        ;; assuming Instant
-                        (take-while (partial layer-before? t) layers)))]
-    (if (seq past-layers)
-      (impl/->Database past-layers (dec (count past-layers)))
-      (throw (IllegalStateException. "No DB subset exists for <t>!")))))

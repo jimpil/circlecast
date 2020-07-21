@@ -1,4 +1,5 @@
-(ns circlecast.fdb.storage)
+(ns circlecast.fdb.storage
+  (:require [clojure.core.protocols :as p]))
 
 (defprotocol Storage
   (get-entity   [storage e-id] )
@@ -16,3 +17,9 @@
 
 (def readers
   {'circlecast.fdb.storage.InMemory  map->InMemory})
+
+(extend-protocol p/Datafiable
+  InMemory
+  (datafy [this]
+    (into {} this))
+  )

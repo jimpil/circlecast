@@ -8,7 +8,7 @@
 on top of [Hazelcast](https://hazelcast.com/) (see `com.hazelcast.cp.IAtomicReference` for the exact construct utilised).
 
 #### tl;dr - poor man's datomic
-A [datomic](https://www.datomic.com/)-like database. Uses `hazelcast 4` for distributed _ACI_, and is compatible with `duratom` (for the _D_).
+A [datomic](https://www.datomic.com/)-like database. Uses `Hazelcast 4` for distributed _ACI_, and is compatible with `duratom` (for the _D_).
 Querying is done with a `datalog` variant. See the `intro.md` for details.  
 
 
@@ -22,7 +22,8 @@ each having a value (at a particular point in time). Rather datomic-like actuall
 
 ## DB connection
 Immutable databases need a way of transitioning from one state to another. For dev/test work, a regular Clojure atom will suffice.
-For a distributed atom, refer to `circlecast.atoms.hazelcast.HazelcastAtom` and its constructor-fn `circlecast.atoms.hazelcast.hz-atom.`
+For a distributed atom, refer to `hazel-atom.core/HazelcastAtom` and its constructor-fn `hazel-atom.core/hz-atom`. 
+See [hazel-atom](https://github.com/jimpil/hazel-atom) for more.
 
 
 ## Usage 
@@ -31,7 +32,7 @@ Assuming a Hazelcast instance `hz-instance` (e.g. the result of `(Hazelcast/newH
 
 ```clj
 (require '[hazel-atom.core :refer [hz-atom]] 
-         '[circlecast.fdb.constructs  :refer [make-db]])
+         '[circlecast.fdb.constructs :refer [make-db]])
 
 (def db-name "myDB")
 ;; make-db can be called w/o args but returns regular atom
@@ -50,16 +51,69 @@ Assuming a Hazelcast instance `hz-instance` (e.g. the result of `(Hazelcast/newH
                                                    :epoch/milli 1595261373174,
                                                    :epoch/micro 1595261373174453,
                                                    :epoch/nano 1595261373174453000}}],
- :present 0}
+ :present 0} ;; present layer 0 is always the empty DB
 
 ```
 See test namespace `circlecast.fdb.world.clj` for a more involved example.
 
+### Entities/attributes 
+It should be no surprise that entities and attributes are plain Clojure records, 
+and thus fully immutable. The relevant functions can be found in `circlecast.fdb.constructs`.
+
+Below is a function that demonstrates creating a list of entities representing countries. 
+```clj
+(require '[circlecast.fdb.constructs :as impl])
+
+(defn make-countries
+  [country-data country-name->currency-id]
+  (for [[a2-code v] country-data]
+    (let [country-name (:name v)
+          currency-id (country-name->currency-id (str/upper-case country-name))]
+      (-> (impl/make-entity) ;; unique UUID is assigned atomatically
+        (impl/add-attr (impl/make-attr :country/name           country-name      :string))
+        (impl/add-attr (impl/make-attr :country/capital        (:capital v)      :string))
+        (impl/add-attr (impl/make-attr :country/continent-code (:continent-a2 v) :string))
+        (impl/add-attr (impl/make-attr :country/phone-code     (:phone-code v)   :string))
+        (impl/add-attr (impl/make-attr :country/a3-code        (:a3-code v)      :string))
+        (impl/add-attr (impl/make-attr :country/a2-code        a2-code           :string))
+        (impl/add-attr (impl/make-attr :country/currency       currency-id       :db/ref))
+        ))))
+```
+There is a higher level function (`entity-with-attributes`) that allows us 
+to write a less noisy version of the above threaded expression (inside the `let`).
+
+```clj
+(impl/entity-with-attributes ;; creates an entity with the following attributes
+  [:country/name           country-name      :string]
+  [:country/capital        (:capital v)      :string]
+  [:country/continent-code (:continent-a2 v) :string]
+  [:country/phone-code     (:phone-code v)   :string]
+  [:country/a3-code        (:a3-code v)      :string]
+  [:country/a2-code        a2-code           :string]
+  [:country/currency       currency-id       :db/ref])
+```
+
 ### Transactions 
+The `circlecast.core/transact!` macro is responsible for performing transactions. 
+It takes a db-connection (an instance of `IAtom`), and one or more 'operations' to perform.
+Each 'operation' boils down to an expression invoking a function from `circlecast.fdb.operations` 
+**omitting the first argument** (the DB which is implicit in this context).  
+For example:
 
 #### Adding/updating
 
+```clj
+(core/transact! DB (ops/add-entity <single-entity>)) ;; inserting new entity
+(core/transact! DB (ops/add-entities <seq-of-entities>)) ;; inserting multiple new entities
+(core/transact! DB (ops/update-entity <entity-id> <attribute-name> <new-value>)) ;; changing the value of an attribute
+```
+
 #### Deleting
+
+```clj
+(core/transact! DB (ops/remove-entity <entity-id>)) ;; deleting an entity
+(core/transact! DB (ops/remove-entities <seq-of-entity-ids>)) ;; deleting multiple entities
+```
 
 ## Persistence
 How data should be persisted in this model (distributed memory-grid), will ultimately depend on the actual application. 
@@ -71,14 +125,14 @@ If a more formal/consistent approach is required, Hazelcast itself provides ente
 
 Putting that stuff aside for a moment, I am more interested/excited about how nicely this plays with [duratom](https://github.com/jimpil/duratom),
 which is wrapper-type for atoms whose whole purpose is to add durability (on every state change). Why is that relevant, I hear you ask...
-Well, this entire library is based around the `circlecast.atoms.hazelcast.HazelcastAtom` type (implementing `IAtom`, `IAtom2` \& `IDeref`), 
+Well, this entire library is based around the `hazel-atom.core/HazelcastAtom` type (implementing `IAtom`, `IAtom2` \& `IDeref`), 
 which a `duratom` will happily wrap. This is a win-win situation! Not only one can add persistence to a hazelcast atom 
 (by wrapping it with a `duratom`), but existing `duratom` users can also add distribution to their atoms (by replacing them with hazelcast atoms).
 Frankly, I never intended for `duratom` to be something distributable, but in this context (where atomicity **and** distribution are provided by the underlying atom) 
 everything falls into place quite beautifully. Here is how to create an atom distributed via Hazelcast, and persisted on PostgresDB via `duratom`:
                                                
 ```clj
-(require '[circlecast.atoms.hazelcast :refer [hz-atom]]
+(require '[hazel-atom.core :refer [hz-atom]]
          '[circlecast.fdb.constructs  :refer [make-db]
          '[duratom.core :refer [with-atom-ctor duratom]]])
                                                
@@ -102,9 +156,10 @@ for example [here](https://news.ycombinator.com/item?id=15416848). Since then, v
 and the devs seem confident about it, while still using `jepsen` as a testing tool. 
 Read more [here](https://hazelcast.com/blog/testing-the-cp-subsystem-with-jepsen/).   
  
-## Requirements
+## Requirements/Dependencies
 
-- Hazelcast 4 
+- hazel-atom (pulls in Hazelcast 4)
+- jedi-time
 
 ## License
 

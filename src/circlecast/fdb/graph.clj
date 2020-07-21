@@ -6,7 +6,7 @@
   (let [val-filter-fn (if ref-names #(vals (select-keys ref-names %)) vals)]
     (if (nil? ent-id)
       []
-      (->> (impl/entity-at db ts ent-id)
+      (->> (impl/entity-at db ent-id ts)
            :attrs
            (val-filter-fn)
            (filter impl/ref?)
@@ -40,4 +40,4 @@
   ([start-ent-id db algo direction ts]
    (let [structure-fn (if (= :graph/bfs algo) vec list*)
          explore-fn (if (= :graph/outgoing direction) outgoing-refs incoming-refs)]
-     (traverse [start-ent-id] #{} (partial explore-fn db ts) (partial impl/entity-at db ts) structure-fn))))
+     (traverse [start-ent-id] #{} (partial explore-fn db ts) #(impl/entity-at db % ts) structure-fn))))

@@ -1,9 +1,10 @@
 (ns circlecast.fdb.hospital
   (:require [circlecast.fdb.constructs :as impl]
-            [circlecast.fdb.core :as core]
+            [circlecast.core :as core]
+            [circlecast.fdb.operations :as ops]
             [circlecast.fdb.graph :as G]
             [circlecast.fdb.query :as Q]
-            [circlecast.fdb.manage :as M]
+            ;[circlecast.fdb.manage :as M]
             [hazel-atom.core :as hza]
             [clojure.set :refer (union difference)])
   (:import (com.hazelcast.core Hazelcast)))
@@ -15,11 +16,11 @@
       (.getAtomicReference db-name)))
 
 (def get-db-conn*
-  (partial M/get-db-conn
+  (partial core/get-db-conn
            (partial impl/make-db
                     (partial hza/hz-atom hz-atom-ref))))
 
-(M/drop-db-conn db-name)
+(core/drop-db-conn db-name)
 
 (def hospital-db (get-db-conn* db-name))
 
@@ -35,7 +36,7 @@
   (-> (impl/make-entity id)
       (impl/add-attr (impl/make-attr :patient/kind :person/patient :db/ref))
       (impl/add-attr (impl/make-attr :patient/city address :string ))
-      (impl/add-attr (impl/make-attr :patient/tests #{} :db/ref :indexed true :cardinality :db/multiple))
+      (impl/add-attr (impl/make-attr :patient/tests #{} :db/ref :cardinality :db/multiple))
       (impl/add-attr (impl/make-attr :patient/symptoms (set symptoms) :string :cardinality :db/multiple))))
 
 (defn make-test
@@ -50,19 +51,21 @@
 (defn add-machine
   [id nm]
   (core/transact! hospital-db
-    (core/add-entity
+    (ops/add-entity
       (-> (impl/make-entity id)
           (impl/add-attr (impl/make-attr :machine/name nm :string))))))
 
 
-(defn add-patient [id address symptoms]
+(defn add-patient 
+  [id address symptoms]
   (core/transact! hospital-db
-    (core/add-entity (make-patient id address symptoms))))
+    (ops/add-entity (make-patient id address symptoms))))
 
-(defn add-test-results-to-patient [pat-id test-result]
+(defn add-test-results-to-patient 
+  [pat-id test-result]
   (let [test-id (:id test-result)]
-    (core/transact! hospital-db (core/add-entity test-result))
-    (core/transact! hospital-db (core/update-entity pat-id :patient/tests #{test-id} :db/add))))
+    (core/transact! hospital-db (ops/add-entity test-result))
+    (core/transact! hospital-db (ops/update-entity pat-id :patient/tests #{test-id} :db/add))))
 
 (comment
 
