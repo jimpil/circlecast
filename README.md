@@ -136,8 +136,8 @@ everything falls into place quite beautifully. Here is how to create an atom dis
                                                
 ```clj
 (require '[hazel-atom.core :refer [hz-atom]]
-         '[circlecast.fdb.constructs  :refer [make-db]
-         '[duratom.core :refer [with-atom-ctor duratom]]])
+         '[circlecast.fdb.constructs :refer [make-db readers]
+         '[duratom.core :refer [with-atom-ctor duratom default-postgres-rw]]])
                                                
 (def db-name "myPersistedDB")
 (def DB 
@@ -146,7 +146,11 @@ everything falls into place quite beautifully. Here is how to create an atom dis
              :db-config "any db-spec as understood by clojure.java.jdbc"
              :table-name "my_table"
              :row-id 0                   ;; different nodes in the cluster could write to different rows
-             :init (make-db identity)))) ;; init-value is only relevant when nothing is found in storage 
+             :init (make-db identity)    ;; init-value is only relevant when nothing is found in storage 
+             ;; merge our EDN readers with duratom's EDN readers (optional)
+             :rw (let [rdrs (update duratom.readers/default :readers merge readers)]
+                   (assoc default-postgres-rw :read (partial ut/read-edn-string false rdrs))
+))) 
                                                
 @DB 
 ;; => an empty DB (same as before but any changes to it will be persisted)
