@@ -69,7 +69,7 @@ Below is a function that demonstrates creating a list of entities representing c
   (for [[a2-code v] country-data]
     (let [country-name (:name v)
           currency-id (country-name->currency-id (str/upper-case country-name))]
-      (-> (impl/make-entity) ;; unique UUID is assigned atomatically
+    (-> (impl/make-entity) ;; unique UUID is assigned automatically
         (impl/add-attr (impl/make-attr :country/name           country-name      :string))
         (impl/add-attr (impl/make-attr :country/capital        (:capital v)      :string))
         (impl/add-attr (impl/make-attr :country/continent-code (:continent-a2 v) :string))
@@ -79,8 +79,8 @@ Below is a function that demonstrates creating a list of entities representing c
         (impl/add-attr (impl/make-attr :country/currency       currency-id       :db/ref))
         ))))
 ```
-There is a higher level function (`entity-with-attributes`) that allows us 
-to write a less noisy version of the above threaded expression (inside the `let`).
+The above threaded expression (inside the `let`) looks kinda noisy.
+We can rewrite it using `entity-with-attributes` like so:
 
 ```clj
 (impl/entity-with-attributes ;; creates an entity with the following attributes
@@ -92,6 +92,7 @@ to write a less noisy version of the above threaded expression (inside the `let`
   [:country/a2-code        a2-code           :string]
   [:country/currency       currency-id       :db/ref])
 ```
+This is arguably nicer and more evident.
 
 ### Transactions 
 The `circlecast.core/transact!` macro is responsible for performing transactions. 
@@ -146,7 +147,7 @@ everything falls into place quite beautifully. Here is how to create an atom dis
              :init (make-db identity)))) ;; init-value is only relevant when nothing is found in storage 
                                                
 @DB 
-;; => an empty DB (same as before)
+;; => an empty DB (same as before but any changes to it will be persisted)
 ```                                               
 
 ## Hazelcast controversy
@@ -158,7 +159,7 @@ Read more [here](https://hazelcast.com/blog/testing-the-cp-subsystem-with-jepsen
  
 ## Requirements/Dependencies
 
-- hazel-atom (pulls in Hazelcast 4)
+- hazel-atom (and consequently Hazelcast 4)
 - jedi-time
 
 ## License
