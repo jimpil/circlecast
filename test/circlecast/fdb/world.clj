@@ -14,24 +14,14 @@
   (for [[a2-code v] country-data]
     (let [country-name (:name v)
           currency-id (country-name->currency-id (str/upper-case country-name))]
-      (impl/entity-with-attributes
+      (core/entity-with-attributes
         [:country/name           country-name      :string]
         [:country/capital        (:capital v)      :string]
         [:country/continent-code (:continent-a2 v) :string]
         [:country/phone-code     (:phone-code v)   :string]
         [:country/a3-code        (:a3-code v)      :string]
         [:country/a2-code        a2-code           :string]
-        [:country/currency       currency-id       :db/ref])
-
-      #_(-> (impl/make-entity)
-        (impl/add-attr (impl/make-attr :country/name           country-name      :string))
-        (impl/add-attr (impl/make-attr :country/capital        (:capital v)      :string))
-        (impl/add-attr (impl/make-attr :country/continent-code (:continent-a2 v) :string))
-        (impl/add-attr (impl/make-attr :country/phone-code     (:phone-code v)   :string))
-        (impl/add-attr (impl/make-attr :country/a3-code        (:a3-code v)      :string))
-        (impl/add-attr (impl/make-attr :country/a2-code        a2-code           :string))
-        (impl/add-attr (impl/make-attr :country/currency       currency-id       :db/ref))
-        ))
+        [:country/currency       currency-id       :db/ref]))
     )
   )
 
@@ -44,22 +34,13 @@
 (defn make-currencies
   [data]
   (for [currency data :when (empty? (get currency "Withdrawal Date"))]
-    (impl/entity-with-attributes
+    (core/entity-with-attributes
       [:currency/entity (normalise (get currency "Entity")) :string]
       [:currency/name (get currency "Currency") :string]
       [:currency/a3-code (get currency "Alphabetic Code") :string]
       [:currency/num-code (get currency "Numeric Code") :string]
       [:currency/minor-units (try (Long/parseLong (get currency "Minor unit"))
-                                  (catch NumberFormatException _ 0)) :number])
-    #_(-> (impl/make-entity)
-        (impl/add-attr (impl/make-attr :currency/entity (normalise (get currency "Entity")) :string))
-        (impl/add-attr (impl/make-attr :currency/name (get currency "Currency") :string))
-        (impl/add-attr (impl/make-attr :currency/a3-code (get currency "Alphabetic Code") :string))
-        (impl/add-attr (impl/make-attr :currency/num-code (get currency "Numeric Code") :string))
-        (impl/add-attr (impl/make-attr :currency/minor-units (try (Long/parseLong (get currency "Minor unit"))
-                                                                  (catch NumberFormatException _ 0)) :number))
-        #_(impl/add-attr (impl/make-attr :currency/withdrawn? (boolean (not-empty (get currency "Withdrawal Date"))) :boolean)))
-    )
+                                  (catch NumberFormatException _ 0)) :number]))
   )
 
 
@@ -171,7 +152,7 @@
                     :where [[?e :country/capital ?capital]
                             [?e :country/currency ?currency-id]
                             [?currency-id :currency/a3-code ^:in? #{"EUR" "OMR"}]
-                            ;; binding a restrive variable for return MUST
+                            ;; binding a restrictive variable for return MUST
                             ;; come after the restrictive clause
                             [?currency-id :currency/a3-code     ?currency-a3]
                             [?currency-id :currency/minor-units ?minor-units]

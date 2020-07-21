@@ -36,7 +36,7 @@
 ;; TRANSACTION MACROS
 
 (defn- what-if*
-  "Operates on the db with the given transactions,
+  "Applies the provided operations <ops> on the db,
    without actually updating it."
   [db f ops]
   (f db ops))
@@ -89,4 +89,24 @@
                         ;; assuming Instant
                         (take-while (partial layer-before? t) layers)))]
     (impl/->Database past-layers (count past-layers))))
+
+;; =====================================================================
+;; ENTITY/ATTRIBUTE SUGAR
+(defn with-attributes
+  "Given an entity, adds the provided attributes to it.
+   Each attribute is expected to be a seq of values as they would
+   be passed to `make-attr` (i.e. at least 3 elements)."
+  [entity & attrs]
+  (reduce
+    (fn [ent attr-data]
+      (->> attr-data
+           (apply impl/make-attr)
+           (impl/add-attr ent)))
+    entity
+    attrs))
+
+(defn entity-with-attributes
+  "Calls `with-attributes` with a newly created entity, and the provided <attrs>."
+  [& attrs]
+  (apply with-attributes (impl/make-entity) attrs))
 

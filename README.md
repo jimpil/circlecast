@@ -83,7 +83,9 @@ The above threaded expression (inside the `let`) looks kinda noisy.
 We can rewrite it using `entity-with-attributes` like so:
 
 ```clj
-(impl/entity-with-attributes ;; creates an entity with the following attributes
+(require '[circlecast.core :as core])
+
+(core/entity-with-attributes ;; creates an entity with the following attributes
   [:country/name           country-name      :string]
   [:country/capital        (:capital v)      :string]
   [:country/continent-code (:continent-a2 v) :string]

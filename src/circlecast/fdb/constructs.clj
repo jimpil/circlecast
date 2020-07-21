@@ -132,7 +132,7 @@
    (attr-at db ent-id attr-name (:present db)))
   ([db ent-id attr-name nlayer]
    (-> db
-       (entity-at nlayer ent-id)
+       (entity-at ent-id nlayer)
        (get-in [:attrs attr-name]))))
 
 (defn value-of-at
@@ -183,25 +183,6 @@
   [ent attr]
   (let [attr-id (keyword (:name attr))]
     (assoc-in ent [:attrs attr-id] attr)))
-
-(defn with-attributes
-  "Given an entity, adds the provided attributes to it.
-   Each attribute here is expected to be a seq of values as they would
-   be passed to `make-attr` (i.e. at least 3 elements)."
-  [entity & attrs]
-  (reduce
-    (fn [ent attr-data]
-      (->> attr-data
-           (apply make-attr)
-           (add-attr ent)))
-    entity
-    attrs))
-
-(defn entity-with-attributes
-  "Calls `with-attributes` with a newly created entity,
-   and the provided <attrs>."
-  [& attrs]
-  (apply with-attributes (make-entity) attrs))
 
 (defn current-layer
   "Returns the last Layer in the provided <db>."

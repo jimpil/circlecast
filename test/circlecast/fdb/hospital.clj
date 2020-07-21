@@ -4,7 +4,6 @@
             [circlecast.fdb.operations :as ops]
             [circlecast.fdb.graph :as G]
             [circlecast.fdb.query :as Q]
-            ;[circlecast.fdb.manage :as M]
             [hazel-atom.core :as hza]
             [clojure.set :refer (union difference)])
   (:import (com.hazelcast.core Hazelcast)))
@@ -34,18 +33,25 @@
 (defn make-patient
   [id address symptoms]
   (-> (impl/make-entity id)
-      (impl/add-attr (impl/make-attr :patient/kind :person/patient :db/ref))
-      (impl/add-attr (impl/make-attr :patient/city address :string ))
-      (impl/add-attr (impl/make-attr :patient/tests #{} :db/ref :cardinality :db/multiple))
-      (impl/add-attr (impl/make-attr :patient/symptoms (set symptoms) :string :cardinality :db/multiple))))
+      (core/with-attributes
+        [:patient/kind :person/patient :db/ref]
+        [:patient/city address :string ]
+        [:patient/tests #{} :db/ref :cardinality :db/multiple]
+        [:patient/symptoms (set symptoms) :string :cardinality :db/multiple])))
 
 (defn make-test
   [t-id tests-map types]
   (let [ent (impl/make-entity t-id)]
-    (reduce #(impl/add-attr %1 (impl/make-attr (first %2) ;attr-name
+    (->> tests-map
+         (map (juxt first  ; attr-name
+                    second ; attr value
+                    #(get types (first %) :number))) ; attr type
+         (apply core/with-attributes ent))
+
+    #_(reduce #(impl/add-attr %1 (impl/make-attr (first %2) ;attr-name
                                                (second %2) ; attr value
                                                (get types (first %2) :number) ; attr type
-                                               :indexed true ));indexed
+                                               ))
             ent tests-map)))
 
 (defn add-machine
@@ -53,13 +59,14 @@
   (core/transact! hospital-db
     (ops/add-entity
       (-> (impl/make-entity id)
-          (impl/add-attr (impl/make-attr :machine/name nm :string))))))
+          (core/with-attributes [:machine/name nm :string])))))
 
 
 (defn add-patient 
   [id address symptoms]
   (core/transact! hospital-db
-    (ops/add-entity (make-patient id address symptoms))))
+    (ops/add-entity
+      (make-patient id address symptoms))))
 
 (defn add-test-results-to-patient 
   [pat-id test-result]
@@ -70,7 +77,7 @@
 (comment
 
   ;; world setup
-  (core/transact! hospital-db  (core/add-entities (map impl/make-entity basic-kinds)))
+  (core/transact! hospital-db  (ops/add-entities (map impl/make-entity basic-kinds)))
 
   (add-patient :pat1 "London" ["fever" "cough"])
   (add-patient :pat2 "London" ["fever" "cough"])
@@ -91,8 +98,8 @@
                       {:test/bp-systolic 140 :test/bp-diastolic 80 :test/machine :2machine2}
                       {:test/machine :db/ref} ))
 
-  (core/transact! hospital-db  (core/update-entity :pat1 :patient/symptoms #{"cold sweat" "sneeze"} :db/reset-to))
-  (core/transact! hospital-db  (core/update-entity :pat1 :patient/tests #{:t2-pat1} :db/add))
+  (core/transact! hospital-db  (ops/update-entity :pat1 :patient/symptoms #{"cold sweat" "sneeze"} :db/reset-to))
+  (core/transact! hospital-db  (ops/update-entity :pat1 :patient/tests #{:t2-pat1} :db/add))
   ;  (transact hospital-db (remove-entity :t2-pat1))
 
   (defn- keep-on-equals [a b]
