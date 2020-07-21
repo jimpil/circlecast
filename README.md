@@ -158,14 +158,14 @@ everything falls into place quite beautifully. Here is how to create an atom dis
 
 ## Hazelcast controversy
 Back in 2017, `jepsen.io` produced an [analysis](https://jepsen.io/analyses/hazelcast-3-8-3) of version 3.8.3, 
-exposing certain holes/bugs, and the project received a fair bit of criticism, 
+exposing certain holes/bugs, and the project received a fair bit of criticism - 
 for example [here](https://news.ycombinator.com/item?id=15416848). Since then, version 4 has been released 
 and the devs seem confident about it, while still using `jepsen` as a testing tool. 
 Read more [here](https://hazelcast.com/blog/testing-the-cp-subsystem-with-jepsen/).   
  
 ## Requirements/Dependencies
 
-- hazel-atom (and consequently Hazelcast 4)
+- hazel-atom (and transitively Hazelcast 4)
 - jedi-time
 
 ## License

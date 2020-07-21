@@ -133,5 +133,6 @@ You can build your own q-variants quite easily.
 ### Across databases
 
 Querying more than one DB using the same query is trivial. All we need to do is to call `q` on those multiple DBs 
-(see `q-all`) and concatenate the results.
+(see `q-all`) and concatenate the results. Joining across databases is also kind of trivial, but it has to be done manually.
+See `circlecast.fdb.tables` for joining schemes (`natural-join` is what is used internally for implicit joins).
 
